@@ -28,23 +28,24 @@
 
  special://xbmc/          - the main XBMC folder (i.e. where the app resides).
  special://home/          - a writeable version of the main XBMC folder
-                             Linux: ~/.xbmc/
-                             OS X:  ~/Library/Application Support/XBMC/
+                             Linux: ~/.kodi/
+                             OS X:  ~/Library/Application Support/Kodi/
                              Win32: ~/Application Data/XBMC/
+ special://envhome/       - on posix systems this will be equal to the $HOME
  special://userhome/      - a writable version of the user home directory
-                             Linux, OS X: ~/.xbmc
+                             Linux, OS X: ~/.kodi
                              Win32: home directory of user
  special://masterprofile/ - the master users userdata folder - usually special://home/userdata
-                             Linux: ~/.xbmc/userdata/
-                             OS X:  ~/Library/Application Support/XBMC/UserData/
+                             Linux: ~/.kodi/userdata/
+                             OS X:  ~/Library/Application Support/Kodi/UserData/
                              Win32: ~/Application Data/XBMC/UserData/
  special://profile/       - the current users userdata folder - usually special://masterprofile/profiles/<current_profile>
-                             Linux: ~/.xbmc/userdata/profiles/<current_profile>
-                             OS X:  ~/Library/Application Support/XBMC/UserData/profiles/<current_profile>
+                             Linux: ~/.kodi/userdata/profiles/<current_profile>
+                             OS X:  ~/Library/Application Support/Kodi/UserData/profiles/<current_profile>
                              Win32: ~/Application Data/XBMC/UserData/profiles/<current_profile>
 
  special://temp/          - the temporary directory.
-                             Linux: ~/tmp/xbmc<username>
+                             Linux: ~/.kodi/temp
                              OS X:  ~/
                              Win32: ~/Application Data/XBMC/cache
 */
@@ -55,11 +56,15 @@ public:
   static void SetProfilePath(const std::string &path);
   static void SetXBMCPath(const std::string &path);
   static void SetXBMCBinPath(const std::string &path);
+  static void SetXBMCBinAddonPath(const std::string &path);
+  static void SetXBMCAltBinAddonPath(const std::string &path);
   static void SetXBMCFrameworksPath(const std::string &path);
   static void SetHomePath(const std::string &path);
   static void SetUserHomePath(const std::string &path);
+  static void SetEnvHomePath(const std::string &path);
   static void SetMasterProfilePath(const std::string &path);
   static void SetTempPath(const std::string &path);
+  static void SetLogPath(const std::string &dir);
 
   static bool ComparePath(const std::string &path1, const std::string &path2);
   static void LogPaths();

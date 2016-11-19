@@ -1,5 +1,4 @@
 #pragma once
-
 /*
  *      Copyright (C) 2012-2013 Team XBMC
  *      http://xbmc.org
@@ -21,13 +20,14 @@
  */
 
 #include "FileItem.h"
-
+#include "pvr/channels/PVRChannel.h"
 #include "threads/CriticalSection.h"
+#include "utils/Observer.h"
 
 #include "EpgInfoTag.h"
 #include "EpgSearchFilter.h"
-#include "utils/Observer.h"
-#include "pvr/channels/PVRChannel.h"
+
+#include <memory>
 
 namespace PVR
 {
@@ -37,10 +37,13 @@ namespace PVR
 /** EPG container for CEpgInfoTag instances */
 namespace EPG
 {
+  class CEpg;
+  typedef std::shared_ptr<CEpg> CEpgPtr;
+  typedef std::map<unsigned int, CEpgPtr> EPGMAP;
+
   class CEpg : public Observable
   {
     friend class CEpgDatabase;
-    friend class CEpgInfoTag;
 
   public:
     /*!
@@ -57,7 +60,7 @@ namespace EPG
      * @param channel The channel to create the EPG for.
      * @param bLoadedFromDb True if this table was loaded from the database, false otherwise.
      */
-    CEpg(PVR::CPVRChannelPtr channel, bool bLoadedFromDb = false);
+    CEpg(const PVR::CPVRChannelPtr &channel, bool bLoadedFromDb = false);
 
     /*!
      * @brief Destroy this EPG instance.
@@ -79,26 +82,18 @@ namespace EPG
     PVR::CPVRChannelPtr Channel(void) const;
 
     int ChannelID(void) const;
-    int ChannelNumber(void) const;
-    int SubChannelNumber(void) const;
 
     /*!
      * @brief Channel the channel tag linked to this EPG table.
      * @param channel The new channel tag.
      */
-    void SetChannel(PVR::CPVRChannelPtr channel);
+    void SetChannel(const PVR::CPVRChannelPtr &channel);
 
     /*!
      * @brief Get the name of the scraper to use for this table.
      * @return The name of the scraper to use for this table.
      */
     const std::string &ScraperName(void) const { return m_strScraperName; }
-
-    /*!
-     * @brief Change the name of the scraper to use.
-     * @param strScraperName The new scraper.
-     */
-    void SetScraperName(const std::string &strScraperName);
 
     /*!
      * @brief Specify if EPG should be manually updated on the next cycle
@@ -142,11 +137,6 @@ namespace EPG
     bool HasValidEntries(void) const;
 
     /*!
-     * @return True if this EPG has a PVR channel set, false otherwise.
-     */
-    bool HasPVRChannel(void) const;
-
-    /*!
      * @brief Remove all entries from this EPG that finished before the given time
      *        and that have no timers set.
      * @param Time Delete entries with an end time before this time in UTC.
@@ -165,23 +155,16 @@ namespace EPG
     void Clear(void);
 
     /*!
-     * @brief Get the event that is occurring now.
-     * @return The current event.
+     * @brief Get the event that is occurring now
+     * @return The current event or NULL if it wasn't found.
      */
-    bool InfoTagNow(CEpgInfoTag &tag, bool bUpdateIfNeeded = true);
+    CEpgInfoTagPtr GetTagNow(bool bUpdateIfNeeded = true) const;
 
     /*!
-     * @brief Get the event that will occur next.
-     * @return The next event.
+     * @brief Get the event that will occur next
+     * @return The next event or NULL if it wasn't found.
      */
-    bool InfoTagNext(CEpgInfoTag &tag);
-
-    /*!
-     * @brief Get the event that occurs at the given time.
-     * @param time The time in UTC to find the event for.
-     * @return The found tag or NULL if it wasn't found.
-     */
-    CEpgInfoTagPtr GetTagAround(const CDateTime &time) const;
+    CEpgInfoTagPtr GetTagNext() const;
 
     /*!
      * Get the event that occurs between the given begin and end time.
@@ -192,25 +175,44 @@ namespace EPG
     CEpgInfoTagPtr GetTagBetween(const CDateTime &beginTime, const CDateTime &endTime) const;
 
     /*!
-     * @brief Get the infotag with the given ID.
-     *
-     * Get the infotag with the given ID.
-     * If it wasn't found, try finding the event with the given start time
-     *
-     * @param uniqueID The unique ID of the event to find.
-     * @param beginTime The start time in UTC of the event to find if it wasn't found by it's unique ID.
-     * @return The found tag or NULL if it wasn't found.
+     * Get all events occuring between the given begin and end time.
+     * @param beginTime Minimum start time in UTC of the event.
+     * @param endTime Maximum end time in UTC of the event.
+     * @return The tags found or an empty vector if none was found.
      */
-    CEpgInfoTagPtr GetTag(const CDateTime &beginTime) const;
+    std::vector<CEpgInfoTagPtr> GetTagsBetween(const CDateTime &beginTime, const CDateTime &endTime) const;
+
+    /*!
+     * @brief Get the event matching the given unique broadcast id
+     * @param iUniqueBroadcastId The uid to look up
+     * @return The matching event or NULL if it wasn't found.
+     */
+    CEpgInfoTagPtr GetTagByBroadcastId(unsigned int iUniqueBroadcastId) const;
+
+    /*!
+     * @brief Update an entry in this EPG.
+     * @param data The tag to update.
+     * @param bUpdateDatabase If set to true, this event will be persisted in the database.
+     * @return True if it was updated successfully, false otherwise.
+     */
+    bool UpdateEntry(const EPG_TAG *data, bool bUpdateDatabase = false);
 
     /*!
      * @brief Update an entry in this EPG.
      * @param tag The tag to update.
      * @param bUpdateDatabase If set to true, this event will be persisted in the database.
-     * @param bSort If set to false, epg entries will not be sorted after updating; used for mass updates
      * @return True if it was updated successfully, false otherwise.
      */
-    bool UpdateEntry(const CEpgInfoTag &tag, bool bUpdateDatabase = false, bool bSort = true);
+    bool UpdateEntry(const CEpgInfoTagPtr &tag, bool bUpdateDatabase = false);
+
+    /*!
+     * @brief Update an entry in this EPG.
+     * @param tag The tag to update.
+     * @param newState the new state of the event.
+     * @param bUpdateDatabase If set to true, this event will be persisted in the database.
+     * @return True if it was updated successfully, false otherwise.
+     */
+    bool UpdateEntry(const CEpgInfoTagPtr &tag, EPG_EVENT_STATE newState, bool bUpdateDatabase = false);
 
     /*!
      * @brief Update the EPG from 'start' till 'end'.
@@ -273,21 +275,7 @@ namespace EPG
      */
     static const std::string &ConvertGenreIdToString(int iID, int iSubID);
 
-    /*!
-     * @brief Update an entry in this EPG.
-     * @param data The tag to update.
-     * @param bUpdateDatabase If set to true, this event will be persisted in the database.
-     * @return True if it was updated successfully, false otherwise.
-     */
-    bool UpdateEntry(const EPG_TAG *data, bool bUpdateDatabase = false);
-
-    /*!
-     * @return True if this is an EPG table for a radio channel, false otherwise.
-     */
-    bool IsRadio(void) const;
-
     CEpgInfoTagPtr GetNextEvent(const CEpgInfoTag& tag) const;
-    CEpgInfoTagPtr GetPreviousEvent(const CEpgInfoTag& tag) const;
 
     size_t Size(void) const;
 
@@ -297,12 +285,13 @@ namespace EPG
      * @return True when this EPG is valid and can be updated, false otherwise.
      */
     bool IsValid(void) const;
+
   protected:
     CEpg(void);
 
     /*!
      * @brief Update the EPG from a scraper set in the channel tag.
-     * TODO: not implemented yet for non-pvr EPGs
+     * @todo not implemented yet for non-pvr EPGs
      * @param start Get entries with a start date after this time.
      * @param end Get entries with an end date before this time.
      * @return True if the update was successful, false otherwise.
@@ -338,10 +327,6 @@ namespace EPG
      */
     bool UpdateEntries(const CEpg &epg, bool bStoreInDb = true);
 
-    bool IsRemovableTag(const EPG::CEpgInfoTag &tag) const;
-
-    void UpdateRecording(CEpgInfoTagPtr tag);
-
     std::map<CDateTime, CEpgInfoTagPtr> m_tags;
     std::map<int, CEpgInfoTagPtr>       m_changedTags;
     std::map<int, CEpgInfoTagPtr>       m_deletedTags;
@@ -352,7 +337,7 @@ namespace EPG
     int                                 m_iEpgID;          /*!< the database ID of this table */
     std::string                         m_strName;         /*!< the name of this table */
     std::string                         m_strScraperName;  /*!< the name of the scraper to use */
-    CDateTime                           m_nowActiveStart;  /*!< the start time of the tag that is currently active */
+    mutable CDateTime                   m_nowActiveStart;  /*!< the start time of the tag that is currently active */
 
     CDateTime                           m_lastScanTime;    /*!< the last time the EPG has been updated */
 

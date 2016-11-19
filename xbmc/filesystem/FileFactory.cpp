@@ -30,10 +30,8 @@
 #include "win32/Win32File.h"
 #endif // TARGET_WINDOWS
 #include "CurlFile.h"
-#include "HTTPFile.h"
 #include "DAVFile.h"
 #include "ShoutcastFile.h"
-#include "FileReaderFile.h"
 #ifdef HAS_FILESYSTEM_SMB
 #ifdef TARGET_WINDOWS
 #include "win32/Win32SMBFile.h"
@@ -46,25 +44,11 @@
 #endif
 #ifdef HAS_FILESYSTEM
 #include "ISOFile.h"
-#ifdef HAS_FILESYSTEM_RTV
-#include "RTVFile.h"
-#endif
-#ifdef HAS_FILESYSTEM_DAAP
-#include "DAAPFile.h"
-#endif
-#endif
-#ifdef HAS_FILESYSTEM_SAP
-#include "SAPFile.h"
-#endif
-#ifdef HAS_FILESYSTEM_VTP
-#include "VTPFile.h"
-#endif
-#ifdef HAS_PVRCLIENTS
-#include "PVRFile.h"
 #endif
 #if defined(TARGET_ANDROID)
 #include "APKFile.h"
 #endif
+#include "XbtFile.h"
 #include "ZipFile.h"
 #ifdef HAS_FILESYSTEM_RAR
 #include "RarFile.h"
@@ -75,30 +59,25 @@
 #ifdef HAS_FILESYSTEM_NFS
 #include "NFSFile.h"
 #endif
-#ifdef HAS_FILESYSTEM_AFP
-#include "AFPFile.h"
-#endif
 #if defined(TARGET_ANDROID)
 #include "AndroidAppFile.h"
 #endif
 #ifdef HAS_UPNP
 #include "UPnPFile.h"
 #endif
-#include "PipesManager.h"
+#ifdef HAVE_LIBBLURAY
+#include "BlurayFile.h"
+#endif
 #include "PipeFile.h"
 #include "MusicDatabaseFile.h"
 #include "SpecialProtocolFile.h"
 #include "MultiPathFile.h"
-#include "TuxBoxFile.h"
 #include "UDFFile.h"
-#include "MythFile.h"
-#include "HDHomeRunFile.h"
-#include "SlingboxFile.h"
 #include "ImageFile.h"
+#include "ResourceFile.h"
 #include "Application.h"
 #include "URL.h"
 #include "utils/log.h"
-#include "utils/StringUtils.h"
 #include "network/WakeOnAccess.h"
 
 using namespace XFILE;
@@ -119,7 +98,7 @@ IFile* CFileFactory::CreateLoader(const std::string& strFileName)
 
 IFile* CFileFactory::CreateLoader(const CURL& url)
 {
-  if (!CWakeOnAccess::Get().WakeUpHost(url))
+  if (!CWakeOnAccess::GetInstance().WakeUpHost(url))
     return NULL;
 
 #if defined(TARGET_ANDROID)
@@ -134,6 +113,7 @@ IFile* CFileFactory::CreateLoader(const CURL& url)
     CLog::Log(LOGWARNING, "%s - Compiled without non-free, rar support is disabled", __FUNCTION__);
 #endif
   }
+  else if (url.IsProtocol("xbt")) return new CXbtFile();
   else if (url.IsProtocol("musicdb")) return new CMusicDatabaseFile();
   else if (url.IsProtocol("videodb")) return NULL;
   else if (url.IsProtocol("special")) return new CSpecialProtocolFile();
@@ -144,7 +124,6 @@ IFile* CFileFactory::CreateLoader(const CURL& url)
 #elif defined(TARGET_WINDOWS)
   else if (url.IsProtocol("file") || url.GetProtocol().empty()) return new CWin32File();
 #endif // TARGET_WINDOWS 
-  else if (url.IsProtocol("filereader")) return new CFileReaderFile();
 #if defined(HAS_FILESYSTEM_CDDA) && defined(HAS_DVD_DRIVE)
   else if (url.IsProtocol("cdda")) return new CFileCDDA();
 #endif
@@ -155,24 +134,25 @@ IFile* CFileFactory::CreateLoader(const CURL& url)
 #if defined(TARGET_ANDROID)
   else if (url.IsProtocol("androidapp")) return new CFileAndroidApp();
 #endif
+  else if (url.IsProtocol("pipe")) return new CPipeFile();
+#ifdef HAVE_LIBBLURAY
+  else if (url.IsProtocol("bluray")) return new CBlurayFile();
+#endif
+  else if (url.IsProtocol("resource")) return new CResourceFile();
 
   bool networkAvailable = g_application.getNetwork().IsAvailable();
   if (networkAvailable)
   {
     if (url.IsProtocol("ftp")
     ||  url.IsProtocol("ftps")
-    ||  url.IsProtocol("rss")) return new CCurlFile();
-    else if (url.IsProtocol("http") ||  url.IsProtocol("https")) return new CHTTPFile();
+    ||  url.IsProtocol("rss")
+    ||  url.IsProtocol("http") 
+    ||  url.IsProtocol("https")) return new CCurlFile();
     else if (url.IsProtocol("dav") || url.IsProtocol("davs")) return new CDAVFile();
 #ifdef HAS_FILESYSTEM_SFTP
     else if (url.IsProtocol("sftp") || url.IsProtocol("ssh")) return new CSFTPFile();
 #endif
     else if (url.IsProtocol("shout")) return new CShoutcastFile();
-    else if (url.IsProtocol("tuxbox")) return new CTuxBoxFile();
-    else if (url.IsProtocol("hdhomerun")) return new CHomeRunFile();
-    else if (url.IsProtocol("sling")) return new CSlingboxFile();
-    else if (url.IsProtocol("myth")) return new CMythFile();
-    else if (url.IsProtocol("cmyth")) return new CMythFile();
 #ifdef HAS_FILESYSTEM_SMB
 #ifdef TARGET_WINDOWS
     else if (url.IsProtocol("smb")) return new CWin32SMBFile();
@@ -180,30 +160,9 @@ IFile* CFileFactory::CreateLoader(const CURL& url)
     else if (url.IsProtocol("smb")) return new CSMBFile();
 #endif
 #endif
-#ifdef HAS_FILESYSTEM
-#ifdef HAS_FILESYSTEM_RTV
-    else if (url.IsProtocol("rtv")) return new CRTVFile();
-#endif
-#ifdef HAS_FILESYSTEM_DAAP
-    else if (url.IsProtocol("daap")) return new CDAAPFile();
-#endif
-#endif
-#ifdef HAS_FILESYSTEM_SAP
-    else if (url.IsProtocol("sap")) return new CSAPFile();
-#endif
-#ifdef HAS_FILESYSTEM_VTP
-    else if (url.IsProtocol("vtp")) return new CVTPFile();
-#endif
-#ifdef HAS_PVRCLIENTS
-    else if (url.IsProtocol("pvr")) return new CPVRFile();
-#endif
 #ifdef HAS_FILESYSTEM_NFS
     else if (url.IsProtocol("nfs")) return new CNFSFile();
 #endif
-#ifdef HAS_FILESYSTEM_AFP
-    else if (url.IsProtocol("afp")) return new CAFPFile();
-#endif
-    else if (url.IsProtocol("pipe")) return new CPipeFile();    
 #ifdef HAS_UPNP
     else if (url.IsProtocol("upnp")) return new CUPnPFile();
 #endif

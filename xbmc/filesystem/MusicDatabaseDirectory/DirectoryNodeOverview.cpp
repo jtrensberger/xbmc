@@ -39,11 +39,11 @@ namespace XFILE
                                 { NODE_TYPE_ALBUM_RECENTLY_ADDED,  "recentlyaddedalbums",  359 },
                                 { NODE_TYPE_ALBUM_RECENTLY_PLAYED, "recentlyplayedalbums", 517 },
                                 { NODE_TYPE_ALBUM_COMPILATIONS,    "compilations",         521 },
+                                { NODE_TYPE_ROLE,                  "roles",              38033 },
                               };
   };
 };
 
-using namespace std;
 using namespace XFILE::MUSICDATABASEDIRECTORY;
 
 CDirectoryNodeOverview::CDirectoryNodeOverview(const std::string& strName, CDirectoryNode* pParent)
@@ -71,19 +71,16 @@ std::string CDirectoryNodeOverview::GetLocalizedName() const
 bool CDirectoryNodeOverview::GetContent(CFileItemList& items) const
 {
   CMusicDatabase musicDatabase;
-  bool showSingles = false;
-  if (musicDatabase.Open())
-  {
-    CDatabase::Filter filter("songview.idAlbum IN (SELECT idAlbum FROM album WHERE strAlbum = '')");
-    if (musicDatabase.GetSongsCount(filter) > 0)
-      showSingles = true;
-  }
+  musicDatabase.Open();
+
+  bool hasSingles = (musicDatabase.GetSinglesCount() > 0);
+  bool hasCompilations = (musicDatabase.GetCompilationAlbumsCount() > 0);
 
   for (unsigned int i = 0; i < sizeof(OverviewChildren) / sizeof(Node); ++i)
   {
-    if (i == 3 && !showSingles) // singles
+    if (i == 3 && !hasSingles)
       continue;
-    if (i == 9 && musicDatabase.GetCompilationAlbumsCount() == 0) // compilations
+    if (i == 9 && !hasCompilations)
       continue;
 
     CFileItemPtr pItem(new CFileItem(g_localizeStrings.Get(OverviewChildren[i].label)));

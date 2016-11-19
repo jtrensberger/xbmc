@@ -22,19 +22,12 @@
 #include <limits>
 #include "addons/Skin.h"
 
-CGUIListLabel::CGUIListLabel(int parentID, int controlID, float posX, float posY, float width, float height, const CLabelInfo& labelInfo, const CGUIInfoLabel &info, bool alwaysScroll)
+CGUIListLabel::CGUIListLabel(int parentID, int controlID, float posX, float posY, float width, float height, const CLabelInfo& labelInfo, const CGUIInfoLabel &info, CGUIControl::GUISCROLLVALUE scroll)
     : CGUIControl(parentID, controlID, posX, posY, width, height)
-    , m_label(posX, posY, width, height, labelInfo, alwaysScroll ? CGUILabel::OVER_FLOW_SCROLL : CGUILabel::OVER_FLOW_TRUNCATE)
+    , m_label(posX, posY, width, height, labelInfo, (scroll == CGUIControl::ALWAYS) ? CGUILabel::OVER_FLOW_SCROLL : CGUILabel::OVER_FLOW_TRUNCATE)
     , m_info(info)
 {
-  m_alwaysScroll = alwaysScroll;
-  if (g_SkinInfo && g_SkinInfo->APIVersion() < ADDON::AddonVersion("5.1.0"))
-  {
-    if (labelInfo.align & XBFONT_RIGHT)
-      m_label.SetMaxRect(m_posX - m_width, m_posY, m_width, m_height);
-    else if (labelInfo.align & XBFONT_CENTER_X)
-      m_label.SetMaxRect(m_posX - m_width*0.5f, m_posY, m_width, m_height);
-  }
+  m_scroll = scroll;
   if (m_info.IsConstant())
     SetLabel(m_info.GetLabel(m_parentID, true));
   ControlType = GUICONTROL_LISTLABEL;
@@ -46,7 +39,10 @@ CGUIListLabel::~CGUIListLabel(void)
 
 void CGUIListLabel::SetScrolling(bool scrolling)
 {
-  m_label.SetScrolling(scrolling || m_alwaysScroll);
+  if (m_scroll == CGUIControl::FOCUS)
+    m_label.SetScrolling(scrolling);
+  else
+    m_label.SetScrolling((m_scroll == CGUIControl::ALWAYS) ? true : false);
 }
 
 void CGUIListLabel::SetSelected(bool selected)
@@ -118,7 +114,7 @@ void CGUIListLabel::SetWidth(float width)
   CGUIControl::SetWidth(m_width);
 }
 
-void CGUIListLabel::SetLabel(const CStdString &label)
+void CGUIListLabel::SetLabel(const std::string &label)
 {
   m_label.SetText(label);
 }

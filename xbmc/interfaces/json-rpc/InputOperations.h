@@ -20,8 +20,8 @@
  */
 
 #include "JSONRPC.h"
-#include "guilib/Key.h"
-#include "threads/CriticalSection.h"
+
+class CVariant;
 
 namespace JSONRPC
 {
@@ -44,6 +44,7 @@ namespace JSONRPC
 
     static JSONRPC_STATUS ShowCodec(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result);
     static JSONRPC_STATUS ShowOSD(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result);
+    static JSONRPC_STATUS ShowPlayerProcessInfo(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result);
 
     static JSONRPC_STATUS SendAction(int actionID, bool wakeScreensaver = true, bool waitResult = false);
 

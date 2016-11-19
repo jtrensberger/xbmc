@@ -19,13 +19,14 @@
  */
 
 #include "GUIListItem.h"
+
+#include <utility>
+
 #include "GUIListItemLayout.h"
 #include "utils/Archive.h"
 #include "utils/CharsetConverter.h"
 #include "utils/StringUtils.h"
 #include "utils/Variant.h"
-
-using namespace std;
 
 bool CGUIListItem::icompare::operator()(const std::string &s1, const std::string &s2) const
 {
@@ -43,23 +44,18 @@ CGUIListItem::CGUIListItem(const CGUIListItem& item)
 CGUIListItem::CGUIListItem(void)
 {
   m_bIsFolder = false;
-  m_strLabel2 = "";
-  m_strLabel = "";
   m_bSelected = false;
-  m_strIcon = "";
   m_overlayIcon = ICON_OVERLAY_NONE;
   m_layout = NULL;
   m_focusedLayout = NULL;
 }
 
-CGUIListItem::CGUIListItem(const std::string& strLabel)
+CGUIListItem::CGUIListItem(const std::string& strLabel):
+  m_strLabel(strLabel)
 {
   m_bIsFolder = false;
-  m_strLabel2 = "";
-  m_strLabel = strLabel;
   SetSortLabel(strLabel);
   m_bSelected = false;
-  m_strIcon = "";
   m_overlayIcon = ICON_OVERLAY_NONE;
   m_layout = NULL;
   m_focusedLayout = NULL;
@@ -410,11 +406,13 @@ void CGUIListItem::SetProperty(const std::string &strKey, const CVariant &value)
   }
 }
 
-CVariant CGUIListItem::GetProperty(const std::string &strKey) const
+const CVariant &CGUIListItem::GetProperty(const std::string &strKey) const
 {
   PropertyMap::const_iterator iter = m_mapProperties.find(strKey);
+  static CVariant nullVariant = CVariant(CVariant::VariantTypeNull);
+  
   if (iter == m_mapProperties.end())
-    return CVariant(CVariant::VariantTypeNull);
+    return nullVariant;
 
   return iter->second;
 }

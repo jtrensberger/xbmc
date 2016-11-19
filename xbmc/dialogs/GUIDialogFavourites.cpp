@@ -25,11 +25,13 @@
 #include "filesystem/FavouritesDirectory.h"
 #include "guilib/GUIWindowManager.h"
 #include "guilib/GUIKeyboardFactory.h"
-#include "guilib/Key.h"
+#include "input/Key.h"
 #include "filesystem/File.h"
 #include "FileItem.h"
 #include "guilib/LocalizeStrings.h"
 #include "storage/MediaManager.h"
+#include "ContextMenuManager.h"
+#include "utils/Variant.h"
 
 using namespace XFILE;
 
@@ -129,7 +131,15 @@ void CGUIDialogFavourites::OnPopupMenu(int item)
   choices.Add(3, 15015);
   choices.Add(4, 118);
   choices.Add(5, 20019);
-  
+
+  CFileItemPtr itemPtr = m_favourites->Get(item);
+
+  //temporary workaround until the context menu ids are removed
+  const int addonItemOffset = 10000;
+  auto addonItems = CContextMenuManager::GetInstance().GetAddonItems(*itemPtr);
+  for (size_t i = 0; i < addonItems.size(); ++i)
+    choices.Add(addonItemOffset + i, addonItems[i]->GetLabel(*itemPtr));
+
   int button = CGUIDialogContextMenu::ShowAndGetChoice(choices);
 
   // unhighlight the item
@@ -145,6 +155,8 @@ void CGUIDialogFavourites::OnPopupMenu(int item)
     OnRename(item);
   else if (button == 5)
     OnSetThumb(item);
+  else if (button >= addonItemOffset)
+    CONTEXTMENU::LoopFrom(*addonItems.at(button - addonItemOffset), itemPtr);
 }
 
 void CGUIDialogFavourites::OnMoveItem(int item, int amount)
@@ -182,7 +194,7 @@ void CGUIDialogFavourites::OnRename(int item)
     return;
 
   std::string label((*m_favourites)[item]->GetLabel());
-  if (CGUIKeyboardFactory::ShowAndGetInput(label, g_localizeStrings.Get(16008), false))
+  if (CGUIKeyboardFactory::ShowAndGetInput(label, CVariant{g_localizeStrings.Get(16008)}, false))
     (*m_favourites)[item]->SetLabel(label);
 
   CFavouritesDirectory::Save(*m_favourites);

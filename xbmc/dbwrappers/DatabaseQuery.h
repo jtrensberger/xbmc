@@ -22,7 +22,7 @@
 #include <set>
 #include <string>
 #include <vector>
-#include <boost/shared_ptr.hpp>
+#include <memory>
 
 #define DATABASEQUERY_RULE_VALUE_SEPARATOR  " / "
 
@@ -56,6 +56,7 @@ public:
                        };
 
   enum FIELD_TYPE { TEXT_FIELD = 0,
+                    REAL_FIELD,
                     NUMERIC_FIELD,
                     DATE_FIELD,
                     PLAYLIST_FIELD,
@@ -101,8 +102,8 @@ protected:
 
 class CDatabaseQueryRuleCombination;
 
-typedef std::vector< boost::shared_ptr<CDatabaseQueryRule> > CDatabaseQueryRules;
-typedef std::vector< boost::shared_ptr<CDatabaseQueryRuleCombination> > CDatabaseQueryRuleCombinations;
+typedef std::vector< std::shared_ptr<CDatabaseQueryRule> > CDatabaseQueryRules;
+typedef std::vector< std::shared_ptr<CDatabaseQueryRuleCombination> > CDatabaseQueryRuleCombinations;
 
 class IDatabaseQueryRuleFactory
 {

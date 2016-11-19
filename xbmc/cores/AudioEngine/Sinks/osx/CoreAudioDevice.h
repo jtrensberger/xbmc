@@ -23,7 +23,9 @@
 
 #if defined(TARGET_DARWIN_OSX)
 
+#include <list>
 #include <string>
+#include <vector>
 
 #include "cores/AudioEngine/Sinks/osx/CoreAudioStream.h"
 
@@ -50,7 +52,7 @@ public:
   bool          SetObjectListenerProc(AudioObjectPropertyListenerProc callback, void *pClientData);
   
   AudioDeviceID GetId() {return m_DeviceId;}
-  std::string   GetName();
+  std::string   GetName() const;
   bool          IsDigital() const;
   UInt32        GetTransportType() const;
   UInt32        GetTotalOutputChannels() const;

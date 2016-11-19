@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2013 Team XBMC
- *      http://xbmc.org
+ *      Copyright (C) 2005-2015 Team Kodi
+ *      http://kodi.tv
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -13,7 +13,7 @@
  *  GNU General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
+ *  along with Kodi; see the file COPYING.  If not, see
  *  <http://www.gnu.org/licenses/>.
  *
  */
@@ -26,12 +26,9 @@
 #include "utils/URIUtils.h"
 #include "PosixMountProvider.h"
 
-CUDiskDevice::CUDiskDevice(const char *DeviceKitUDI)
+CUDiskDevice::CUDiskDevice(const char *DeviceKitUDI):
+  m_DeviceKitUDI(DeviceKitUDI)
 {
-  m_DeviceKitUDI = DeviceKitUDI;
-  m_UDI = "";
-  m_MountPath = "";
-  m_FileSystem = "";
   m_isMounted = false;
   m_isMountedByUs = false;
   m_isRemovable = false;
@@ -62,7 +59,7 @@ void CUDiskDevice::Update()
   }
 
   m_isMounted   = properties["DeviceIsMounted"].asBoolean();
-  if (m_isMounted && properties["DeviceMountPaths"].size() > 0)
+  if (m_isMounted && !properties["DeviceMountPaths"].empty())
     m_MountPath   = properties["DeviceMountPaths"][0].asString();
   else
     m_MountPath.clear();
@@ -177,8 +174,8 @@ std::string CUDiskDevice::toString()
 CUDisksProvider::CUDisksProvider()
 {
   dbus_error_init (&m_error);
-  // TODO: do not use dbus_connection_pop_message() that requires the use of a
-  // private connection
+  //! @todo do not use dbus_connection_pop_message() that requires the use of a
+  //! private connection
   m_connection = dbus_bus_get_private(DBUS_BUS_SYSTEM, &m_error);
 
   if (m_connection)
@@ -304,7 +301,8 @@ bool CUDisksProvider::HasUDisks()
 
 void CUDisksProvider::DeviceAdded(const char *object, IStorageEventsCallback *callback)
 {
-  CLog::Log(LOGDEBUG|LOGDBUS, "UDisks: DeviceAdded (%s)", object);
+  if (g_advancedSettings.CanLogComponent(LOGDBUS))
+    CLog::Log(LOGDEBUG, "UDisks: DeviceAdded (%s)", object);
 
   if (m_AvailableDevices[object])
   {
@@ -319,7 +317,8 @@ void CUDisksProvider::DeviceAdded(const char *object, IStorageEventsCallback *ca
   if (g_advancedSettings.m_handleMounting)
     device->Mount();
 
-  CLog::Log(LOGDEBUG|LOGDBUS, "UDisks: DeviceAdded - %s", device->toString().c_str());
+  if (g_advancedSettings.CanLogComponent(LOGDBUS))
+    CLog::Log(LOGDEBUG, "UDisks: DeviceAdded - %s", device->toString().c_str());
 
   if (device->m_isMounted && device->IsApproved())
   {
@@ -331,7 +330,8 @@ void CUDisksProvider::DeviceAdded(const char *object, IStorageEventsCallback *ca
 
 void CUDisksProvider::DeviceRemoved(const char *object, IStorageEventsCallback *callback)
 {
-  CLog::Log(LOGDEBUG|LOGDBUS, "UDisks: DeviceRemoved (%s)", object);
+  if (g_advancedSettings.CanLogComponent(LOGDBUS))
+    CLog::Log(LOGDEBUG, "UDisks: DeviceRemoved (%s)", object);
 
   CUDiskDevice *device = m_AvailableDevices[object];
   if (device)
@@ -346,7 +346,8 @@ void CUDisksProvider::DeviceRemoved(const char *object, IStorageEventsCallback *
 
 void CUDisksProvider::DeviceChanged(const char *object, IStorageEventsCallback *callback)
 {
-  CLog::Log(LOGDEBUG|LOGDBUS, "UDisks: DeviceChanged (%s)", object);
+  if (g_advancedSettings.CanLogComponent(LOGDBUS))
+    CLog::Log(LOGDEBUG, "UDisks: DeviceChanged (%s)", object);
 
   CUDiskDevice *device = m_AvailableDevices[object];
   if (device == NULL)
@@ -368,7 +369,8 @@ void CUDisksProvider::DeviceChanged(const char *object, IStorageEventsCallback *
     else if (mounted && !device->m_isMounted && callback)
       callback->OnStorageSafelyRemoved(device->m_Label);
 
-    CLog::Log(LOGDEBUG|LOGDBUS, "UDisks: DeviceChanged - %s", device->toString().c_str());
+    if (g_advancedSettings.CanLogComponent(LOGDBUS))
+      CLog::Log(LOGDEBUG, "UDisks: DeviceChanged - %s", device->toString().c_str());
   }
 }
 

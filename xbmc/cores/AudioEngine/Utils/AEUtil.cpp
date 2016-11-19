@@ -21,34 +21,43 @@
   #define __STDC_LIMIT_MACROS
 #endif
 
+#if (defined HAVE_CONFIG_H) && (!defined TARGET_WINDOWS)
+#include "config.h"
+#endif
+
 #include "AEUtil.h"
 #include "utils/log.h"
 #include "utils/TimeUtils.h"
 
-using namespace std;
+#include <cassert>
+
+extern "C" {
+#include "libavutil/channel_layout.h"
+}
 
 /* declare the rng seed and initialize it */
 unsigned int CAEUtil::m_seed = (unsigned int)(CurrentHostCounter() / 1000.0f);
-#ifdef __SSE2__
+#if defined(HAVE_SSE2) && defined(__SSE2__)
   /* declare the SSE seed and initialize it */
   MEMALIGN(16, __m128i CAEUtil::m_sseSeed) = _mm_set_epi32(CAEUtil::m_seed, CAEUtil::m_seed+1, CAEUtil::m_seed, CAEUtil::m_seed+1);
 #endif
 
-void   AEDelayStatus::SetDelay(double d)
+void AEDelayStatus::SetDelay(double d)
 {
   delay = d;
-  tick  = CurrentHostCounter();
+  maxcorrection = d;
+  tick = CurrentHostCounter();
 }
 
 double AEDelayStatus::GetDelay()
 {
-  double d = delay;
-  if(tick)
-    d -= (double)(CurrentHostCounter() - tick) / CurrentHostFrequency();
-  if(d < 0)
-    return 0.0;
-  else
-    return d;
+  double d = 0;
+  if (tick)
+    d = (double)(CurrentHostCounter() - tick) / CurrentHostFrequency();
+  if (d > maxcorrection)
+    d = maxcorrection;
+
+  return delay - d;
 }
 
 CAEChannelInfo CAEUtil::GuessChLayout(const unsigned int channels)
@@ -118,14 +127,8 @@ const unsigned int CAEUtil::DataFormatToBits(const enum AEDataFormat dataFormat)
     
     sizeof(double) << 3, /* DOUBLE */
     sizeof(float ) << 3, /* FLOAT  */
-    
-    16,                  /* AAC    */
-    16,                  /* AC3    */
-    16,                  /* DTS    */
-    16,                  /* EAC3   */
-    16,                  /* TRUEHD */
-    16,                  /* DTS-HD */
-    32,                  /* LPCM   */
+
+     8,                  /* RAW    */
 
      8,                  /* U8P    */
     16,                  /* S16NEP */
@@ -159,6 +162,34 @@ const unsigned int CAEUtil::DataFormatToDitherBits(const enum AEDataFormat dataF
     return 0;
 }
 
+const char* CAEUtil::StreamTypeToStr(const enum CAEStreamInfo::DataType dataType)
+{
+  switch (dataType)
+  {
+    case CAEStreamInfo::STREAM_TYPE_AC3:
+      return "STREAM_TYPE_AC3";
+    case CAEStreamInfo::STREAM_TYPE_DTSHD:
+      return "STREAM_TYPE_DTSHD";
+    case CAEStreamInfo::STREAM_TYPE_DTSHD_CORE:
+      return "STREAM_TYPE_DTSHD_CORE";
+    case CAEStreamInfo::STREAM_TYPE_DTS_1024:
+      return "STREAM_TYPE_DTS_1024";
+    case CAEStreamInfo::STREAM_TYPE_DTS_2048:
+      return "STREAM_TYPE_DTS_2048";
+    case CAEStreamInfo::STREAM_TYPE_DTS_512:
+      return "STREAM_TYPE_DTS_512";
+    case CAEStreamInfo::STREAM_TYPE_EAC3:
+      return "STREAM_TYPE_EAC3";
+    case CAEStreamInfo::STREAM_TYPE_MLP:
+      return "STREAM_TYPE_MLP";
+    case CAEStreamInfo::STREAM_TYPE_TRUEHD:
+      return "STREAM_TYPE_TRUEHD";
+
+    default:
+      return "STREAM_TYPE_NULL";
+  }
+}
+
 const char* CAEUtil::DataFormatToStr(const enum AEDataFormat dataFormat)
 {
   if (dataFormat < 0 || dataFormat >= AE_FMT_MAX)
@@ -188,14 +219,7 @@ const char* CAEUtil::DataFormatToStr(const enum AEDataFormat dataFormat)
     "AE_FMT_DOUBLE",
     "AE_FMT_FLOAT",
     
-    /* for passthrough streams and the like */
-    "AE_FMT_AAC",
-    "AE_FMT_AC3",
-    "AE_FMT_DTS",
-    "AE_FMT_EAC3",
-    "AE_FMT_TRUEHD",
-    "AE_FMT_DTSHD",
-    "AE_FMT_LPCM",
+    "AE_FMT_RAW",
 
     /* planar formats */
     "AE_FMT_U8P",
@@ -211,7 +235,7 @@ const char* CAEUtil::DataFormatToStr(const enum AEDataFormat dataFormat)
   return formats[dataFormat];
 }
 
-#ifdef __SSE__
+#if defined(HAVE_SSE) && defined(__SSE__)
 void CAEUtil::SSEMulArray(float *data, const float mul, uint32_t count)
 {
   const __m128 m = _mm_set_ps1(mul);
@@ -347,7 +371,7 @@ inline float CAEUtil::SoftClamp(const float x)
 
 void CAEUtil::ClampArray(float *data, uint32_t count)
 {
-#ifndef __SSE__
+#if !defined(HAVE_SSE) || !defined(__SSE__)
   for (uint32_t i = 0; i < count; ++i)
     data[i] = SoftClamp(data[i]);
 
@@ -440,7 +464,7 @@ float CAEUtil::FloatRand1(const float min, const float max)
 
 void CAEUtil::FloatRand4(const float min, const float max, float result[4], __m128 *sseresult/* = NULL */)
 {
-  #ifdef __SSE2__
+  #if defined(HAVE_SSE2) && defined(__SSE2__)
     /*
       this method may be called from other SSE code, we need
       to calculate the delta & factor using SSE as the FPU
@@ -519,10 +543,142 @@ bool CAEUtil::S16NeedsByteSwap(AEDataFormat in, AEDataFormat out)
     AE_FMT_S16LE;
 #endif
 
-  if (in == AE_FMT_S16NE || AE_IS_RAW(in))
+  if (in == AE_FMT_S16NE || (in == AE_FMT_RAW))
     in = nativeFormat;
-  if (out == AE_FMT_S16NE || AE_IS_RAW(out))
+  if (out == AE_FMT_S16NE || (out == AE_FMT_RAW))
     out = nativeFormat;
 
   return in != out;
+}
+
+uint64_t CAEUtil::GetAVChannelLayout(const CAEChannelInfo &info)
+{
+  uint64_t channelLayout = 0;
+  if (info.HasChannel(AE_CH_FL))   channelLayout |= AV_CH_FRONT_LEFT;
+  if (info.HasChannel(AE_CH_FR))   channelLayout |= AV_CH_FRONT_RIGHT;
+  if (info.HasChannel(AE_CH_FC))   channelLayout |= AV_CH_FRONT_CENTER;
+  if (info.HasChannel(AE_CH_LFE))  channelLayout |= AV_CH_LOW_FREQUENCY;
+  if (info.HasChannel(AE_CH_BL))   channelLayout |= AV_CH_BACK_LEFT;
+  if (info.HasChannel(AE_CH_BR))   channelLayout |= AV_CH_BACK_RIGHT;
+  if (info.HasChannel(AE_CH_FLOC)) channelLayout |= AV_CH_FRONT_LEFT_OF_CENTER;
+  if (info.HasChannel(AE_CH_FROC)) channelLayout |= AV_CH_FRONT_RIGHT_OF_CENTER;
+  if (info.HasChannel(AE_CH_BC))   channelLayout |= AV_CH_BACK_CENTER;
+  if (info.HasChannel(AE_CH_SL))   channelLayout |= AV_CH_SIDE_LEFT;
+  if (info.HasChannel(AE_CH_SR))   channelLayout |= AV_CH_SIDE_RIGHT;
+  if (info.HasChannel(AE_CH_TC))   channelLayout |= AV_CH_TOP_CENTER;
+  if (info.HasChannel(AE_CH_TFL))  channelLayout |= AV_CH_TOP_FRONT_LEFT;
+  if (info.HasChannel(AE_CH_TFC))  channelLayout |= AV_CH_TOP_FRONT_CENTER;
+  if (info.HasChannel(AE_CH_TFR))  channelLayout |= AV_CH_TOP_FRONT_RIGHT;
+  if (info.HasChannel(AE_CH_TBL))   channelLayout |= AV_CH_TOP_BACK_LEFT;
+  if (info.HasChannel(AE_CH_TBC))   channelLayout |= AV_CH_TOP_BACK_CENTER;
+  if (info.HasChannel(AE_CH_TBR))   channelLayout |= AV_CH_TOP_BACK_RIGHT;
+
+  return channelLayout;
+}
+
+CAEChannelInfo CAEUtil::GetAEChannelLayout(uint64_t layout)
+{
+  CAEChannelInfo channelLayout;
+  channelLayout.Reset();
+
+  if (layout & AV_CH_FRONT_LEFT)       channelLayout += AE_CH_FL;
+  if (layout & AV_CH_FRONT_RIGHT)      channelLayout += AE_CH_FR;
+  if (layout & AV_CH_FRONT_CENTER)     channelLayout += AE_CH_FC;
+  if (layout & AV_CH_LOW_FREQUENCY)    channelLayout += AE_CH_LFE;
+  if (layout & AV_CH_BACK_LEFT)        channelLayout += AE_CH_BL;
+  if (layout & AV_CH_BACK_RIGHT)       channelLayout += AE_CH_BR;
+  if (layout & AV_CH_FRONT_LEFT_OF_CENTER)  channelLayout += AE_CH_FLOC;
+  if (layout & AV_CH_FRONT_RIGHT_OF_CENTER) channelLayout += AE_CH_FROC;
+  if (layout & AV_CH_BACK_CENTER)      channelLayout += AE_CH_BC;
+  if (layout & AV_CH_SIDE_LEFT)        channelLayout += AE_CH_SL;
+  if (layout & AV_CH_SIDE_RIGHT)       channelLayout += AE_CH_SR;
+  if (layout & AV_CH_TOP_CENTER)       channelLayout += AE_CH_TC;
+  if (layout & AV_CH_TOP_FRONT_LEFT)   channelLayout += AE_CH_TFL;
+  if (layout & AV_CH_TOP_FRONT_CENTER) channelLayout += AE_CH_TFC;
+  if (layout & AV_CH_TOP_FRONT_RIGHT)  channelLayout += AE_CH_TFR;
+  if (layout & AV_CH_TOP_BACK_LEFT)    channelLayout += AE_CH_BL;
+  if (layout & AV_CH_TOP_BACK_CENTER)  channelLayout += AE_CH_BC;
+  if (layout & AV_CH_TOP_BACK_RIGHT)   channelLayout += AE_CH_BR;
+
+  return channelLayout;
+}
+
+AVSampleFormat CAEUtil::GetAVSampleFormat(AEDataFormat format)
+{
+  switch (format)
+  {
+    case AEDataFormat::AE_FMT_U8:
+      return AV_SAMPLE_FMT_U8;
+    case AEDataFormat::AE_FMT_S16NE:
+      return AV_SAMPLE_FMT_S16;
+    case AEDataFormat::AE_FMT_S32NE:
+      return AV_SAMPLE_FMT_S32;
+    case AEDataFormat::AE_FMT_S24NE4:
+      return AV_SAMPLE_FMT_S32;
+    case AEDataFormat::AE_FMT_S24NE4MSB:
+      return AV_SAMPLE_FMT_S32;
+    case AEDataFormat::AE_FMT_S24NE3:
+      return AV_SAMPLE_FMT_S32;
+    case AEDataFormat::AE_FMT_FLOAT:
+      return AV_SAMPLE_FMT_FLT;
+    case AEDataFormat::AE_FMT_DOUBLE:
+      return AV_SAMPLE_FMT_DBL;
+    case AEDataFormat::AE_FMT_U8P:
+      return AV_SAMPLE_FMT_U8P;
+    case AEDataFormat::AE_FMT_S16NEP:
+      return AV_SAMPLE_FMT_S16P;
+    case AEDataFormat::AE_FMT_S32NEP:
+      return AV_SAMPLE_FMT_S32P;
+    case AEDataFormat::AE_FMT_S24NE4P:
+      return AV_SAMPLE_FMT_S32P;
+    case AEDataFormat::AE_FMT_S24NE4MSBP:
+      return AV_SAMPLE_FMT_S32P;
+    case AEDataFormat::AE_FMT_S24NE3P:
+      return AV_SAMPLE_FMT_S32P;
+    case AEDataFormat::AE_FMT_FLOATP:
+      return AV_SAMPLE_FMT_FLTP;
+    case AEDataFormat::AE_FMT_DOUBLEP:
+      return AV_SAMPLE_FMT_DBLP;
+    case AEDataFormat::AE_FMT_RAW:
+      return AV_SAMPLE_FMT_U8;
+    default:
+    {
+      if (AE_IS_PLANAR(format))
+        return AV_SAMPLE_FMT_FLTP;
+      else
+        return AV_SAMPLE_FMT_FLT;
+    }
+  }
+}
+
+uint64_t CAEUtil::GetAVChannel(enum AEChannel aechannel)
+{
+  switch (aechannel)
+  {
+  case AE_CH_FL:   return AV_CH_FRONT_LEFT;
+  case AE_CH_FR:   return AV_CH_FRONT_RIGHT;
+  case AE_CH_FC:   return AV_CH_FRONT_CENTER;
+  case AE_CH_LFE:  return AV_CH_LOW_FREQUENCY;
+  case AE_CH_BL:   return AV_CH_BACK_LEFT;
+  case AE_CH_BR:   return AV_CH_BACK_RIGHT;
+  case AE_CH_FLOC: return AV_CH_FRONT_LEFT_OF_CENTER;
+  case AE_CH_FROC: return AV_CH_FRONT_RIGHT_OF_CENTER;
+  case AE_CH_BC:   return AV_CH_BACK_CENTER;
+  case AE_CH_SL:   return AV_CH_SIDE_LEFT;
+  case AE_CH_SR:   return AV_CH_SIDE_RIGHT;
+  case AE_CH_TC:   return AV_CH_TOP_CENTER;
+  case AE_CH_TFL:  return AV_CH_TOP_FRONT_LEFT;
+  case AE_CH_TFC:  return AV_CH_TOP_FRONT_CENTER;
+  case AE_CH_TFR:  return AV_CH_TOP_FRONT_RIGHT;
+  case AE_CH_TBL:  return AV_CH_TOP_BACK_LEFT;
+  case AE_CH_TBC:  return AV_CH_TOP_BACK_CENTER;
+  case AE_CH_TBR:  return AV_CH_TOP_BACK_RIGHT;
+  default:
+    return 0;
+  }
+}
+
+int CAEUtil::GetAVChannelIndex(enum AEChannel aechannel, uint64_t layout)
+{
+  return av_get_channel_layout_channel_index(layout, GetAVChannel(aechannel));
 }

@@ -20,23 +20,21 @@
 
 #ifdef TARGET_WINDOWS
 #include "Win32File.h"
-#include "win32/WIN32Util.h"
+#include "platform/win32/WIN32Util.h"
 #include "utils/win32/Win32Log.h"
 #include "utils/SystemInfo.h"
 #include "utils/auto_buffer.h"
-#include "utils/StringUtils.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN 1
 #endif // WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 
-#include <sys/types.h>
 #include <sys/stat.h>
 
 #include <intsafe.h>
 #include <wchar.h>
-#include <limits.h>
+#include <cassert>
 
 
 using namespace XFILE;
@@ -78,10 +76,9 @@ bool CWin32File::Open(const CURL& url)
   }
 
   std::wstring pathnameW(CWIN32Util::ConvertPathToWin32Form(url));
-  if (pathnameW.empty())
-    return false;
+  if (pathnameW.length() <= 6) // 6 is length of "\\?\x:"
+    return false; // pathnameW is empty or points to device ("\\?\x:")
 
-  assert(pathnameW.length() > 6); // 6 is length of "//?/x:"
   assert((pathnameW.compare(4, 4, L"UNC\\", 4) == 0 && m_smbFile) || !m_smbFile);
 
   m_filepathnameW = pathnameW;
@@ -103,10 +100,9 @@ bool CWin32File::OpenForWrite(const CURL& url, bool bOverWrite /*= false*/)
     return false;
 
   std::wstring pathnameW(CWIN32Util::ConvertPathToWin32Form(url));
-  if (pathnameW.empty())
-    return false;
+  if (pathnameW.length() <= 6) // 6 is length of "\\?\x:"
+    return false; // pathnameW is empty or points to device ("\\?\x:")
 
-  assert(pathnameW.length() > 6); // 6 is length of "//?/x:"
   assert((pathnameW.compare(4, 4, L"UNC\\", 4) == 0 && m_smbFile) || !m_smbFile);
 
   m_hFile = CreateFileW(pathnameW.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ,
@@ -175,9 +171,23 @@ void CWin32File::Close()
 
 ssize_t CWin32File::Read(void* lpBuf, size_t uiBufSize)
 {
-  assert(lpBuf != NULL);
-  if (m_hFile == INVALID_HANDLE_VALUE || !lpBuf)
+  if (m_hFile == INVALID_HANDLE_VALUE)
     return -1;
+
+  assert(lpBuf != NULL || uiBufSize == 0);
+  if (lpBuf == NULL && uiBufSize != 0)
+    return -1;
+
+  if (uiBufSize == 0)
+  { // allow "test" read with zero size
+    XUTILS::auto_buffer dummyBuf(255);
+    DWORD bytesRead = 0;
+    if (!ReadFile(m_hFile, dummyBuf.get(), 0, &bytesRead, NULL))
+      return -1;
+
+    assert(bytesRead == 0);
+    return 0;
+  }
 
   if (uiBufSize > SSIZE_MAX)
     uiBufSize = SSIZE_MAX;
@@ -192,7 +202,10 @@ ssize_t CWin32File::Read(void* lpBuf, size_t uiBufSize)
     if (!ReadFile(m_hFile, ((BYTE*)lpBuf) + read, (uiBufSize > DWORD_MAX) ? DWORD_MAX : (DWORD)uiBufSize, &lastRead, NULL))
     {
       m_filePos = -1;
-      return -1;
+      if (read > 0)
+        return read; // return number of successfully read bytes
+      else
+        return -1;
     }
     read += lastRead;
     // if m_filePos is set - update it
@@ -213,14 +226,29 @@ ssize_t CWin32File::Read(void* lpBuf, size_t uiBufSize)
 
 ssize_t CWin32File::Write(const void* lpBuf, size_t uiBufSize)
 {
-  assert(lpBuf != NULL);
-  if (m_hFile == INVALID_HANDLE_VALUE || !lpBuf)
+  if (m_hFile == INVALID_HANDLE_VALUE)
+    return -1;
+
+  assert(lpBuf != NULL || uiBufSize == 0);
+  if (lpBuf == NULL && uiBufSize != 0)
     return -1;
 
   if (!m_allowWrite)
   {
     CLog::LogF(LOGERROR, "Attempt to write file opened for reading");
     return -1;
+  }
+
+  if (uiBufSize == 0)
+  { // allow "test" write with zero size
+    XUTILS::auto_buffer dummyBuf(255);
+    dummyBuf.get()[0] = 0;
+    DWORD bytesWritten = 0;
+    if (!WriteFile(m_hFile, dummyBuf.get(), 0, &bytesWritten, NULL))
+      return -1;
+
+    assert(bytesWritten == 0);
+    return 0;
   }
 
   if (uiBufSize > SSIZE_MAX)
@@ -234,7 +262,10 @@ ssize_t CWin32File::Write(const void* lpBuf, size_t uiBufSize)
     if (!WriteFile(m_hFile, ((const BYTE*)lpBuf) + written, toWrite, &lastWritten, NULL))
     {
       m_filePos = -1;
-      return -1;
+      if (written > 0)
+        return written; // return number of successfully written bytes
+      else
+        return -1;
     }
     written += lastWritten;
     uiBufSize -= lastWritten;
@@ -362,7 +393,7 @@ bool CWin32File::Rename(const CURL& urlCurrentName, const CURL& urlNewName)
   if (m_smbFile)
     m_lastSMBFileErr = ERROR_INVALID_DATA; // used to indicate internal errors, cleared by successful file operation
 
-  // TODO: check whether it's file or directory
+  //! @todo check whether it's file or directory
   std::wstring curNameW(CWIN32Util::ConvertPathToWin32Form(urlCurrentName));
   if (curNameW.empty())
     return false;
@@ -435,9 +466,14 @@ int CWin32File::Stat(const CURL& url, struct __stat64* statData)
 
   std::wstring pathnameW(CWIN32Util::ConvertPathToWin32Form(url));
   if (pathnameW.empty())
+  {
+    errno = ENOENT;
     return -1;
+  }
 
-  assert(pathnameW.length() > 6); // 6 is length of "//?/x:"
+  if (pathnameW.length() <= 6) // 6 is length of "\\?\x:"
+    return -1; // pathnameW is empty or points to device ("\\?\x:"), on win32 stat() for devices is not supported
+
   assert((pathnameW.compare(4, 4, L"UNC\\", 4) == 0 && m_smbFile) || !m_smbFile);
 
   // get maximum information about file from search function
@@ -501,9 +537,7 @@ int CWin32File::Stat(const CURL& url, struct __stat64* statData)
     FILE_BASIC_INFO basicInfo;
     if (GetFileInformationByHandleEx(hFile, FileBasicInfo, &basicInfo, sizeof(basicInfo)) != 0)
     {
-      statData->st_mtime = CWIN32Util::fileTimeToTimeT(basicInfo.ChangeTime); // most accurate value
-      if (statData->st_mtime == 0)
-        statData->st_mtime = CWIN32Util::fileTimeToTimeT(basicInfo.LastWriteTime); // less accurate value
+      statData->st_mtime = CWIN32Util::fileTimeToTimeT(basicInfo.LastWriteTime);
       statData->st_atime = CWIN32Util::fileTimeToTimeT(basicInfo.LastAccessTime);
       statData->st_ctime = CWIN32Util::fileTimeToTimeT(basicInfo.CreationTime);
     }
@@ -606,9 +640,7 @@ int CWin32File::Stat(struct __stat64* statData)
   if (GetFileInformationByHandleEx(m_hFile, FileBasicInfo, &basicInfo, sizeof(basicInfo)) == 0)
     return -1; // can't get basic file information
 
-  statData->st_mtime = CWIN32Util::fileTimeToTimeT(basicInfo.ChangeTime); // most accurate value
-  if (statData->st_mtime == 0)
-    statData->st_mtime = CWIN32Util::fileTimeToTimeT(basicInfo.LastWriteTime); // less accurate value
+  statData->st_mtime = CWIN32Util::fileTimeToTimeT(basicInfo.LastWriteTime);
 
   statData->st_atime = CWIN32Util::fileTimeToTimeT(basicInfo.LastAccessTime);
   if (statData->st_atime == 0)

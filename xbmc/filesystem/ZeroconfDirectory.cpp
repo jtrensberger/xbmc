@@ -20,6 +20,7 @@
 
 #include "ZeroconfDirectory.h"
 #include <stdexcept>
+#include <cassert>
 
 #include "URL.h"
 #include "utils/URIUtils.h"
@@ -47,16 +48,10 @@ namespace
       return "SAMBA";
     else if(fcr_service_type == "_ftp._tcp.")
       return "FTP";
-    else if(fcr_service_type == "_htsp._tcp.")
-      return "HTS";
-    else if(fcr_service_type == "_daap._tcp.")
-      return "iTunes Music Sharing";
     else if(fcr_service_type == "_webdav._tcp.")
       return "WebDAV";   
     else if(fcr_service_type == "_nfs._tcp.")
       return "NFS";   
-    else if(fcr_service_type == "_afpovertcp._tcp.")
-      return "AFP";   
     else if(fcr_service_type == "_sftp-ssh._tcp.")
       return "SFTP";
     //fallback, just return the received type
@@ -68,16 +63,10 @@ namespace
       fr_protocol = "smb";
     else if(fcr_service_type == "_ftp._tcp.")
       fr_protocol = "ftp";
-    else if(fcr_service_type == "_htsp._tcp.")
-      fr_protocol = "htsp";
-    else if(fcr_service_type == "_daap._tcp.")
-      fr_protocol = "daap";
     else if(fcr_service_type == "_webdav._tcp.")
       fr_protocol = "dav";
     else if(fcr_service_type == "_nfs._tcp.")
       fr_protocol = "nfs";      
-    else if(fcr_service_type == "_afpovertcp._tcp.")
-      fr_protocol = "afp";      
     else if(fcr_service_type == "_sftp-ssh._tcp.")
       fr_protocol = "sftp";
     else
@@ -86,7 +75,7 @@ namespace
   }
 }
 
-bool GetDirectoryFromTxtRecords(CZeroconfBrowser::ZeroconfService zeroconf_service, CURL& url, CFileItemList &items)
+bool GetDirectoryFromTxtRecords(const CZeroconfBrowser::ZeroconfService& zeroconf_service, CURL& url, CFileItemList &items)
 {
   bool ret = false;
 
@@ -222,7 +211,7 @@ bool CZeroconfDirectory::GetDirectory(const CURL& url, CFileItemList &items)
         service.SetPort(zeroconf_service.GetPort());
         service.SetHostName(zeroconf_service.GetIP());
         //do protocol conversion (_smb._tcp -> smb)
-        //ToDo: try automatic conversion -> remove leading '_' and '._tcp'?
+        //! @todo try automatic conversion -> remove leading '_' and '._tcp'?
         std::string protocol;
         if(!GetXBMCProtocol(zeroconf_service.GetType(), protocol))
         {

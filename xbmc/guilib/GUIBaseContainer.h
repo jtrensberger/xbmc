@@ -25,8 +25,11 @@
  *
  */
 
-#include "IGUIContainer.h"
+#include <utility>
+#include <vector>
+
 #include "GUIListItemLayout.h"
+#include "IGUIContainer.h"
 #include "utils/Stopwatch.h"
 
 /*!
@@ -89,6 +92,10 @@ public:
    */
   void SetRenderOffset(const CPoint &offset);
 
+  void SetClickActions(const CGUIAction& clickActions) { m_clickActions = clickActions; };
+  void SetFocusActions(const CGUIAction& focusActions) { m_focusActions = focusActions; };
+  void SetUnFocusActions(const CGUIAction& unfocusActions) { m_unfocusActions = unfocusActions; };
+
   void SetAutoScrolling(const TiXmlNode *node);
   void ResetAutoScrolling();
   void UpdateAutoScrolling(unsigned int currentTime);
@@ -122,6 +129,7 @@ protected:
   virtual int GetCurrentPage() const;
   bool InsideLayout(const CGUIListItemLayout *layout, const CPoint &point) const;
   virtual void OnFocus();
+  virtual void OnUnFocus();
   void UpdateListProvider(bool forceRefresh = false);
 
   int ScrollCorrectionRange() const;
@@ -173,7 +181,7 @@ protected:
   void OnPrevLetter();
   void OnJumpLetter(char letter, bool skip = false);
   void OnJumpSMS(int letter);
-  std::vector< std::pair<int, CStdString> > m_letterOffsets;
+  std::vector< std::pair<int, std::string> > m_letterOffsets;
 
   /*! \brief Set the cursor position
    Should be used by all base classes rather than directly setting it, as
@@ -207,6 +215,8 @@ protected:
   unsigned int m_lastRenderTime;
 
 private:
+  bool OnContextMenu();
+
   int m_cursor;
   int m_offset;
   int m_cacheItems;
@@ -214,9 +224,13 @@ private:
   CStopWatch m_lastScrollStartTimer;
   CStopWatch m_pageChangeTimer;
 
+  CGUIAction m_clickActions;
+  CGUIAction m_focusActions;
+  CGUIAction m_unfocusActions;
+
   // letter match searching
   CStopWatch m_matchTimer;
-  CStdString m_match;
+  std::string m_match;
   float m_scrollItemsPerFrame;
 
   static const int letter_match_timeout = 1000;

@@ -18,19 +18,21 @@
  *
  */
 
+#include <iostream>
+#include <string>
+
 #include "PlayListB4S.h"
 #include "Util.h"
 #include "utils/XBMCTinyXML.h"
-#include "settings/AdvancedSettings.h"
 #include "music/tags/MusicInfoTag.h"
 #include "filesystem/File.h"
 #include "utils/log.h"
+#include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/XMLUtils.h"
 
 using namespace XFILE;
 using namespace PLAYLIST;
-using namespace std;
 
 /* ------------------------ example b4s playlist file ---------------------------------
  <?xml version="1.0" encoding='UTF-8' standalone="yes"?>
@@ -55,7 +57,7 @@ CPlayListB4S::~CPlayListB4S(void)
 {}
 
 
-bool CPlayListB4S::LoadData(istream& stream)
+bool CPlayListB4S::LoadData(std::istream& stream)
 {
   CXBMCTinyXML xmlDoc;
 

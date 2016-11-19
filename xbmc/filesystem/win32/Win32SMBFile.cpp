@@ -22,13 +22,14 @@
 #include "Win32SMBFile.h"
 #include "Win32SMBDirectory.h"
 #include "URL.h"
-#include "win32/WIN32Util.h"
+#include "platform/win32/WIN32Util.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN 1
 #endif // WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 
+#include <cassert>
 
 using namespace XFILE;
 
@@ -151,7 +152,7 @@ int CWin32SMBFile::Stat(const CURL& url, struct __stat64* statData)
   if (CWin32File::Stat(url, statData) == 0)
     return 0;
 
-  if (!worthTryToConnect(GetLastError()) || !ConnectAndAuthenticate(url))
+  if (!worthTryToConnect(m_lastSMBFileErr) || !ConnectAndAuthenticate(url))
     return -1;
 
   return CWin32File::Stat(url, statData);

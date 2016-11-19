@@ -21,11 +21,22 @@
 
 #ifdef HAS_EGL
 #include "utils/log.h"
-#include "EGLNativeTypeAndroid.h"
+#include <assert.h>
+#if defined(TARGET_ANDROID)
+  #include "EGLNativeTypeAndroid.h"
+#if defined(HAS_LIBAMCODEC)
+  #include "EGLNativeTypeAmlAndroid.h"
+#endif
+#endif
+#if defined(TARGET_RASPBERRY_PI)
+  #include "EGLNativeTypeRaspberryPI.h"
+#endif
+#if defined(HAS_IMXVPU)
+  #include "EGLNativeTypeIMX.h"
+#endif
+#if defined(TARGET_LINUX) && defined(HAS_LIBAMCODEC)
 #include "EGLNativeTypeAmlogic.h"
-#include "EGLNativeTypeRaspberryPI.h"
-#include "EGLNativeTypeWayland.h"
-#include "EGLNativeTypeIMX.h"
+#endif
 #include "EGLWrapper.h"
 
 #define CheckError() m_result = eglGetError(); if(m_result != EGL_SUCCESS) CLog::Log(LOGERROR, "EGL error in %s: %x",__FUNCTION__, m_result);
@@ -79,11 +90,18 @@ bool CEGLWrapper::Initialize(const std::string &implementation)
 
   // Try to create each backend in sequence and go with the first one
   // that we know will work
-  if ((nativeGuess = CreateEGLNativeType<CEGLNativeTypeWayland>(implementation)) ||
-      (nativeGuess = CreateEGLNativeType<CEGLNativeTypeAndroid>(implementation)) ||
-      (nativeGuess = CreateEGLNativeType<CEGLNativeTypeAmlogic>(implementation)) ||
-      (nativeGuess = CreateEGLNativeType<CEGLNativeTypeRaspberryPI>(implementation)) ||
+  if (
+#if defined(TARGET_ANDROID) && defined(HAS_LIBAMCODEC)
+      (nativeGuess = CreateEGLNativeType<CEGLNativeTypeAmlAndroid>(implementation))
+#elif defined(TARGET_ANDROID)
+      (nativeGuess = CreateEGLNativeType<CEGLNativeTypeAndroid>(implementation))
+#elif defined(TARGET_RASPBERRY_PI)
+      (nativeGuess = CreateEGLNativeType<CEGLNativeTypeRaspberryPI>(implementation))
+#elif defined(HAS_IMXVPU)
       (nativeGuess = CreateEGLNativeType<CEGLNativeTypeIMX>(implementation))
+#elif defined(TARGET_LINUX) && defined(HAS_LIBAMCODEC)
+      (nativeGuess = CreateEGLNativeType<CEGLNativeTypeAmlogic>(implementation))
+#endif
       )
   {
     m_nativeTypes = nativeGuess;
@@ -214,12 +232,11 @@ bool CEGLWrapper::InitDisplay(EGLDisplay *display)
 
 bool CEGLWrapper::ChooseConfig(EGLDisplay display, EGLint *configAttrs, EGLConfig *config)
 {
-  EGLBoolean eglStatus = true;
   EGLint     configCount = 0;
   EGLConfig* configList = NULL;
 
   // Find out how many configurations suit our needs
-  eglStatus = eglChooseConfig(display, configAttrs, NULL, 0, &configCount);
+  EGLBoolean eglStatus = eglChooseConfig(display, configAttrs, NULL, 0, &configCount);
   CheckError();
 
   if (!eglStatus || !configCount)
@@ -274,11 +291,6 @@ bool CEGLWrapper::CreateSurface(EGLDisplay display, EGLConfig config, EGLSurface
   *surface = eglCreateWindowSurface(display, config, *nativeWindow, NULL);
   CheckError();
   return *surface != EGL_NO_SURFACE;
-}
-
-bool CEGLWrapper::TrustSurfaceSize()
-{
-  return !(m_nativeTypes->GetQuirks() & EGL_QUIRK_DONT_TRUST_SURFACE_SIZE);
 }
 
 bool CEGLWrapper::GetSurfaceSize(EGLDisplay display, EGLSurface surface, EGLint *width, EGLint *height)

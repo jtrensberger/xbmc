@@ -1,6 +1,8 @@
+#pragma once
+
 /*
- *      Copyright (C) 2010-2013 Team XBMC
- *      http://xbmc.org
+ *      Copyright (C) 2010-2015 Team Kodi
+ *      http://kodi.tv
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -13,13 +15,10 @@
  *  GNU General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
+ *  along with Kodi; see the file COPYING.  If not, see
  *  <http://www.gnu.org/licenses/>.
  *
  */
-
-#ifndef _BITSTREAMCONVERTER_H_
-#define _BITSTREAMCONVERTER_H_
 
 #include <stdint.h>
 
@@ -44,8 +43,8 @@ typedef struct {
 } bits_reader_t;
 
 ////////////////////////////////////////////////////////////////////////////////////////////
-// TODO: refactor this so as not to need these ffmpeg routines.
-// These are not exposed in ffmpeg's API so we dupe them here.
+//! @todo refactor this so as not to need these ffmpeg routines.
+//! These are not exposed in ffmpeg's API so we dupe them here.
 // AVC helper functions for muxers,
 //  * Copyright (c) 2006 Baptiste Coudurier <baptiste.coudurier@smartjog.com>
 // This is part of FFmpeg
@@ -177,7 +176,10 @@ protected:
   static const int  avc_parse_nal_units_buf(const uint8_t *buf_in, uint8_t **buf, int *size);
   const int         isom_write_avcc(AVIOContext *pb, const uint8_t *data, int len);
   // bitstream to bytestream (Annex B) conversion support.
-  bool              BitstreamConvertInit(void *in_extradata, int in_extrasize);
+  bool              IsIDR(uint8_t unit_type);
+  bool              IsSlice(uint8_t unit_type);
+  bool              BitstreamConvertInitAVC(void *in_extradata, int in_extrasize);
+  bool              BitstreamConvertInitHEVC(void *in_extradata, int in_extrasize);
   bool              BitstreamConvert(uint8_t* pData, int iSize, uint8_t **poutbuf, int *poutbuf_size);
   static void       BitstreamAllocAndCopy(uint8_t **poutbuf, int *poutbuf_size,
                       const uint8_t *sps_pps, uint32_t sps_pps_size, const uint8_t *in, uint32_t in_size);
@@ -207,4 +209,3 @@ protected:
   AVCodecID         m_codec;
 };
 
-#endif

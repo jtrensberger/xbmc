@@ -37,7 +37,7 @@ namespace XBMCAddon
 
     String Addon::getAddonVersion() { return languageHook == NULL ? emptyString : languageHook->GetAddonVersion(); }
 
-    Addon::Addon(const char* cid) throw (AddonException)
+    Addon::Addon(const char* cid)
     {
       String id(cid ? cid : emptyString);
 
@@ -50,42 +50,20 @@ namespace XBMCAddon
       if (id.empty())
         throw AddonException("No valid addon id could be obtained. None was passed and the script wasn't executed in a normal xbmc manner.");
 
-      // if we still fail we MAY be able to recover.
-      if (!ADDON::CAddonMgr::Get().GetAddon(id.c_str(), pAddon))
-      {
-        // we need to check the version prior to trying a bw compatibility trick
-        ADDON::AddonVersion version(getAddonVersion());
-        ADDON::AddonVersion allowable("1.0");
+      if (!ADDON::CAddonMgr::GetInstance().GetAddon(id.c_str(), pAddon))
+        throw AddonException("Unknown addon id '%s'.", id.c_str());
 
-        if (version <= allowable)
-        {
-          // try the default ...
-          id = getDefaultId();
-
-          if (id.empty() || !ADDON::CAddonMgr::Get().GetAddon(id.c_str(), pAddon))
-            throw AddonException("Could not get AddonPtr!");
-          else
-            CLog::Log(LOGERROR,"Use of deprecated functionality. Please to not assume that \"os.getcwd\" will return the script directory.");
-        }
-        else
-        {
-          throw AddonException("Could not get AddonPtr given a script id of %s."
-                               "If you are trying to use 'os.getcwd' to set the path, you cannot do that in a version %s plugin.", 
-                               id.c_str(), version.asString().c_str());
-        }
-      }
-
-      CAddonMgr::Get().AddToUpdateableAddons(pAddon);
+      CAddonMgr::GetInstance().AddToUpdateableAddons(pAddon);
     }
 
     Addon::~Addon()
     {
-      CAddonMgr::Get().RemoveFromUpdateableAddons(pAddon);
+      CAddonMgr::GetInstance().RemoveFromUpdateableAddons(pAddon);
     }
 
     String Addon::getLocalizedString(int id)
     {
-      return pAddon->GetString(id);
+      return g_localizeStrings.GetAddonString(pAddon->ID(), id);
     }
 
     String Addon::getSetting(const char* id)
@@ -127,7 +105,7 @@ namespace XBMCAddon
       CGUIDialogAddonSettings::ShowAndGetInput(addon);
     }
 
-    String Addon::getAddonInfo(const char* id) throw (AddonException)
+    String Addon::getAddonInfo(const char* id)
     {
       if (strcmpi(id, "author") == 0)
         return pAddon->Author();
@@ -150,9 +128,7 @@ namespace XBMCAddon
       else if (strcmpi(id, "profile") == 0)
         return pAddon->Profile();
       else if (strcmpi(id, "stars") == 0)
-      {
-        return StringUtils::Format("%d", pAddon->Stars());
-      }
+        return StringUtils::Format("-1");
       else if (strcmpi(id, "summary") == 0)
         return pAddon->Summary();
       else if (strcmpi(id, "type") == 0)

@@ -115,7 +115,7 @@ bool CPeripheralBusUSB::PerformDeviceScan(PeripheralScanResults &results)
   devices = udev_enumerate_get_list_entry(enumerate);
 
   bool bContinue(true);
-  CStdString strPath, strClass;
+  std::string strPath, strClass;
   udev_list_entry_foreach(dev_list_entry, devices)
   {
     strPath = udev_list_entry_get_name(dev_list_entry);
@@ -124,7 +124,7 @@ bool CPeripheralBusUSB::PerformDeviceScan(PeripheralScanResults &results)
 
     if (bContinue)
     {
-      if (!(parent = udev_device_new_from_syspath(m_udev, strPath)))
+      if (!(parent = udev_device_new_from_syspath(m_udev, strPath.c_str())))
         bContinue = false;
     }
 
@@ -147,8 +147,8 @@ bool CPeripheralBusUSB::PerformDeviceScan(PeripheralScanResults &results)
       int iClass = PeripheralTypeTranslator::HexStringToInt(strClass.c_str());
       if (iClass == USB_CLASS_PER_INTERFACE)
       {
-        //TODO just assume this is a HID device for now, since the only devices that we're currently
-        //     interested in are HID devices
+        //! @todo just assume this is a HID device for now, since the only devices that we're currently
+        //!     interested in are HID devices
         iClass = USB_CLASS_HID;
       }
 
@@ -209,6 +209,7 @@ void CPeripheralBusUSB::Process(void)
       ScanForDevices();
   }
 
+  CSingleLock lock(m_critSection);
   m_bIsStarted = false;
 }
 

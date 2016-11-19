@@ -70,6 +70,8 @@ public:
   virtual bool CommitTransaction();
   void RollbackTransaction();
   bool InTransaction();
+  void CopyDB(const std::string& latestDb);
+  void DropAnalytics();
 
   std::string PrepareSQL(std::string strStmt, ...) const;
 
@@ -90,7 +92,7 @@ public:
    \param ds the dataset to use for the query.
    \return the value from the query, empty on failure.
    */
-  std::string GetSingleValue(const std::string &query, std::auto_ptr<dbiplus::Dataset> &ds);
+  std::string GetSingleValue(const std::string &query, std::unique_ptr<dbiplus::Dataset> &ds);
 
   /*!
    * @brief Delete values from a table.
@@ -139,12 +141,6 @@ public:
   bool CommitMultipleExecute();
 
   /*!
-   * @brief Open a new dataset.
-   * @return True if the dataset was created successfully, false otherwise.
-   */
-  bool OpenDS();
-
-  /*!
    * @brief Put an INSERT or REPLACE query in the queue.
    * @param strQuery The query to queue.
    * @return True if the query was added successfully, false otherwise.
@@ -161,9 +157,10 @@ public:
   virtual bool BuildSQL(const std::string &strBaseDir, const std::string &strQuery, Filter &filter, std::string &strSQL, CDbUrl &dbUrl);
   virtual bool BuildSQL(const std::string &strBaseDir, const std::string &strQuery, Filter &filter, std::string &strSQL, CDbUrl &dbUrl, SortDescription &sorting);
 
+  bool Connect(const std::string &dbName, const DatabaseSettings &db, bool create);
+
 protected:
   friend class CDatabaseManager;
-  bool Update(const DatabaseSettings &db);
 
   void Split(const std::string& strFileNameAndPath, std::string& strPath, std::string& strFileName);
 
@@ -200,19 +197,17 @@ protected:
   virtual const char *GetBaseDBName() const=0;
 
   int GetDBVersion();
-  bool UpdateVersion(const std::string &dbName);
 
   bool BuildSQL(const std::string &strQuery, const Filter &filter, std::string &strSQL);
 
   bool m_sqlite; ///< \brief whether we use sqlite (defaults to true)
 
-  std::auto_ptr<dbiplus::Database> m_pDB;
-  std::auto_ptr<dbiplus::Dataset> m_pDS;
-  std::auto_ptr<dbiplus::Dataset> m_pDS2;
+  std::unique_ptr<dbiplus::Database> m_pDB;
+  std::unique_ptr<dbiplus::Dataset> m_pDS;
+  std::unique_ptr<dbiplus::Dataset> m_pDS2;
 
 private:
   void InitSettings(DatabaseSettings &dbSettings);
-  bool Connect(const std::string &dbName, const DatabaseSettings &db, bool create);
   void UpdateVersionNumber();
 
   bool m_bMultiWrite; /*!< True if there are any queries in the queue, false otherwise */

@@ -23,12 +23,17 @@
  *
  */
 
+#include <string>
+#include <vector>
+
 #include "rendering/gles/RenderSystemGLES.h"
 #include "utils/GlobalsHandling.h"
 #include <EGL/egl.h>
 #include "windowing/WinSystem.h"
+#include "threads/SystemClock.h"
 
 class CEGLWrapper;
+class IDispResource;
 
 class CWinSystemEGL : public CWinSystemBase, public CRenderSystemGLES
 {
@@ -38,7 +43,7 @@ public:
 
   virtual bool  InitWindowSystem();
   virtual bool  DestroyWindowSystem();
-  virtual bool  CreateNewWindow(const CStdString& name, bool fullScreen, RESOLUTION_INFO& res, PHANDLE_EVENT_FUNC userFunction);
+  virtual bool  CreateNewWindow(const std::string& name, bool fullScreen, RESOLUTION_INFO& res, PHANDLE_EVENT_FUNC userFunction);
   virtual bool  DestroyWindow();
   virtual bool  ResizeWindow(int newWidth, int newHeight, int newLeft, int newTop);
   virtual bool  SetFullScreen(bool fullScreen, RESOLUTION_INFO& res, bool blankOtherDisplays);
@@ -55,8 +60,9 @@ public:
   virtual bool  Restore() ;
   virtual bool  Hide();
   virtual bool  Show(bool raise = true);
+  virtual void  Register(IDispResource *resource);
+  virtual void  Unregister(IDispResource *resource);
 
-  virtual bool  Support3D(int width, int height, uint32_t mode)     const;
   virtual bool  ClampToGUIDisplayLimits(int &width, int &height);
 
   EGLConfig     GetEGLConfig();
@@ -64,7 +70,7 @@ public:
   EGLDisplay    GetEGLDisplay();
   EGLContext    GetEGLContext();
 protected:
-  virtual bool  PresentRenderImpl(const CDirtyRegionList &dirty);
+  virtual void  PresentRenderImpl(bool rendered);
   virtual void  SetVSyncImpl(bool enable);
 
   bool          CreateWindow(RESOLUTION_INFO &res);
@@ -76,9 +82,14 @@ protected:
   EGLSurface            m_surface;
   EGLContext            m_context;
   EGLConfig             m_config;
+  RENDER_STEREO_MODE    m_stereo_mode;
 
   CEGLWrapper           *m_egl;
   std::string           m_extensions;
+  CCriticalSection             m_resourceSection;
+  std::vector<IDispResource*>  m_resources;
+  bool m_delayDispReset;
+  XbmcThreads::EndTime m_dispResetTimer;
 };
 
 XBMC_GLOBAL_REF(CWinSystemEGL,g_Windowing);

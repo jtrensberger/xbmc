@@ -19,7 +19,10 @@
  *
  */
 
-#include "ILanguageInvoker.h"
+#include <string>
+#include <vector>
+
+#include "interfaces/generic/ILanguageInvoker.h"
 #include "threads/Thread.h"
 
 class CScriptInvocationManager;
@@ -27,7 +30,7 @@ class CScriptInvocationManager;
 class CLanguageInvokerThread : public ILanguageInvoker, protected CThread
 {
 public:
-  CLanguageInvokerThread(ILanguageInvoker *invoker, CScriptInvocationManager *invocationManager);
+  CLanguageInvokerThread(LanguageInvokerPtr invoker, CScriptInvocationManager *invocationManager);
   ~CLanguageInvokerThread();
 
   virtual InvokerState GetState();
@@ -42,7 +45,7 @@ protected:
   virtual void OnException();
 
 private:
-  ILanguageInvoker *m_invoker;
+  LanguageInvokerPtr m_invoker;
   CScriptInvocationManager *m_invocationManager;
   std::string m_script;
   std::vector<std::string> m_args;

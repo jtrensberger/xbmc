@@ -22,7 +22,7 @@
 #include <set>
 #include <string>
 #include <vector>
-#include <boost/shared_ptr.hpp>
+#include <memory>
 
 #include "dbwrappers/DatabaseQuery.h"
 #include "utils/SortUtils.h"
@@ -56,6 +56,7 @@ public:
 
   static bool Validate(const std::string &input, void *data);
   static bool ValidateRating(const std::string &input, void *data);
+  static bool ValidateMyRating(const std::string &input, void *data);
 
 protected:
   virtual std::string         GetField(int field, const std::string& type) const;
@@ -76,6 +77,7 @@ protected:
 
 private:
   std::string GetVideoResolutionQuery(const std::string &parameter) const;
+  static std::string FormatLinkQuery(const char *field, const char *table, const MediaType& mediaType, const std::string& mediaField, const std::string& parameter);
 };
 
 class CSmartPlaylistRuleCombination : public CDatabaseQueryRuleCombination

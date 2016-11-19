@@ -23,6 +23,7 @@
 #include "threads/SingleLock.h"
 #include "threads/Thread.h"
 #include "utils/StringUtils.h"
+#include "CompileInfo.h"
 
 static const char* const levelNames[] =
 {"DEBUG", "INFO", "NOTICE", "WARNING", "ERROR", "SEVERE", "FATAL", "NONE"};
@@ -92,7 +93,7 @@ void CLog::LogString(int logLevel, const std::string& logString)
       WriteLogString(s_globals.m_repeatLogLevel, strData2);
       s_globals.m_repeatCount = 0;
     }
-    
+
     s_globals.m_repeatLine = strData;
     s_globals.m_repeatLogLevel = logLevel;
 
@@ -109,7 +110,9 @@ bool CLog::Init(const std::string& path)
   // the log folder location is initialized in the CAdvancedSettings
   // constructor and changed in CApplication::Create()
 
-  return s_globals.m_platform.OpenLogFile(path + "xbmc.log", path + "xbmc.old.log");
+  std::string appName = CCompileInfo::GetAppName();
+  StringUtils::ToLower(appName);
+  return s_globals.m_platform.OpenLogFile(path + appName + ".log", path + appName + ".old.log");
 }
 
 void CLog::MemDump(char *pData, int length)
@@ -195,19 +198,21 @@ void CLog::PrintDebugString(const std::string& line)
 
 bool CLog::WriteLogString(int logLevel, const std::string& logString)
 {
-  static const char* prefixFormat = "%02.2d:%02.2d:%02.2d T:%" PRIu64" %7s: ";
+  static const char* prefixFormat = "%02d:%02d:%02d.%03d T:%" PRIu64" %7s: ";
 
   std::string strData(logString);
   /* fixup newline alignment, number of spaces should equal prefix length */
   StringUtils::Replace(strData, "\n", "\n                                            ");
 
   int hour, minute, second;
-  s_globals.m_platform.GetCurrentLocalTime(hour, minute, second);
-  
+  double millisecond;
+  s_globals.m_platform.GetCurrentLocalTime(hour, minute, second, millisecond);
+
   strData = StringUtils::Format(prefixFormat,
                                   hour,
                                   minute,
                                   second,
+                                  static_cast<int>(millisecond),
                                   (uint64_t)CThread::GetCurrentThreadId(),
                                   levelNames[logLevel]) + strData;
 

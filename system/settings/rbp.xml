@@ -1,22 +1,35 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <settings>
-  <section id="videos">
+  <section id="player">
     <category id="videoplayer">
-      <group id="2">
-        <setting id="videoplayer.synctype">
+      <group id="3">
+        <setting id="videoplayer.rendermethod">
           <visible>false</visible>
         </setting>
-      </group>
-    </category>
-    <category id="videoacceleration">
-      <group id="1">
-        <visible>false</visible>
-      </group>
-      <group id="3">
+        <setting id="videoplayer.hqscalers">
+          <visible>false</visible>
+        </setting>
         <setting id="videoplayer.usemmal" type="boolean" label="36434" help="36435">
-          <dependencies>
-            <dependency type="enable" setting="videoplayer.decodingmethod" operator="is">1</dependency>
-          </dependencies>
+          <level>2</level>
+          <default>true</default>
+          <control type="toggle" />
+        </setting>
+        <setting id="videoplayer.limitguiupdate" type="integer" label="38013" help="38014">
+          <level>2</level>
+          <default>10</default>
+          <constraints>
+            <minimum label="38015">0</minimum> <!-- Unlimited -->
+            <step>5</step>
+            <maximum>25</maximum>
+          </constraints>
+          <control type="spinner" format="string">
+            <formatlabel>38016</formatlabel>
+          </control>
+          <control type="edit" format="integer" />
+        </setting>
+      </group>
+      <group id="4">
+        <setting id="videoplayer.supportmvc" type="boolean" label="38027" help="38028">
           <level>2</level>
           <default>true</default>
           <control type="toggle" />
@@ -24,9 +37,17 @@
       </group>
     </category>
   </section>
-
+  <section id="media">
+    <category id="video">
+      <group id="1">
+        <setting id="myvideos.extractchapterthumbs">
+          <default>false</default>
+        </setting>
+      </group>
+    </category>
+  </section>
   <section id="system">
-    <category id="videoscreen">
+    <category id="display">
       <group id="1">
         <setting id="videoscreen.screen">
           <visible>false</visible>
@@ -58,13 +79,21 @@
           <control type="edit" format="integer" />
         </setting>
       </group>
-    </category>
-    <category id="audiooutput">
-      <group id="1">
-        <setting id="audiooutput.dualaudio" type="boolean" label="37017" help="36542">
+      <group id="2">
+        <setting id="videoscreen.framepacking" type="boolean" label="38029" help="38030">
           <level>2</level>
           <default>false</default>
           <control type="toggle" />
+        </setting>
+      </group>
+    </category>
+    <category id="audio">
+      <group id="1">
+        <setting id="audiooutput.processquality">
+          <default>101</default> <!-- AE_QUALITY_GPU -->
+        </setting>
+        <setting id="audiooutput.atempothreshold">
+          <default>100</default> <!-- disabled -->
         </setting>
       </group>
       <group id="3">

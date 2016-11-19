@@ -26,24 +26,19 @@
 #include "WinEvents.h"
 #include "WinEventsX11.h"
 #include "Application.h"
-#include "ApplicationMessenger.h"
+#include "messaging/ApplicationMessenger.h"
 #include <X11/Xlib.h>
-#include "X11/WinSystemX11GL.h"
-#include "X11/WinSystemX11GLES.h"
+#include <X11/extensions/Xrandr.h>
+#include "WindowingFactory.h"
 #include "X11/keysymdef.h"
 #include "X11/XF86keysym.h"
 #include "utils/log.h"
 #include "utils/CharsetConverter.h"
 #include "guilib/GUIWindowManager.h"
 #include "input/MouseStat.h"
+#include "input/InputManager.h"
 
-#if defined(HAS_XRANDR)
-#include <X11/extensions/Xrandr.h>
-#endif
-
-#ifdef HAS_SDL_JOYSTICK
-#include "input/SDLJoystick.h"
-#endif
+using namespace KODI::MESSAGING;
 
 CWinEventsX11Imp* CWinEventsX11Imp::WinEvents = 0;
 
@@ -273,7 +268,6 @@ bool CWinEventsX11Imp::Init(Display *dpy, Window win)
   }
 
   // register for xrandr events
-#if defined(HAS_XRANDR)
   int iReturn;
   XRRQueryExtension(WinEvents->m_display, &WinEvents->m_RREventBase, &iReturn);
   int numScreens = XScreenCount(WinEvents->m_display);
@@ -281,7 +275,6 @@ bool CWinEventsX11Imp::Init(Display *dpy, Window win)
   {
     XRRSelectInput(WinEvents->m_display, RootWindow(WinEvents->m_display, i), RRScreenChangeNotifyMask | RRCrtcChangeNotifyMask | RROutputChangeNotifyMask | RROutputPropertyNotifyMask);
   }
-#endif
 
   return true;
 }
@@ -328,7 +321,6 @@ bool CWinEventsX11Imp::MessagePump()
     memset(&xevent, 0, sizeof (XEvent));
     XNextEvent(WinEvents->m_display, &xevent);
 
-#if defined(HAS_XRANDR)
     if (WinEvents && (xevent.type == WinEvents->m_RREventBase + RRScreenChangeNotify))
     {
       XRRUpdateConfiguration(&xevent);
@@ -346,7 +338,6 @@ bool CWinEventsX11Imp::MessagePump()
       serial = xevent.xgeneric.serial;
       continue;
     }
-#endif
 
     if (XFilterEvent(&xevent, WinEvents->m_window))
       continue;
@@ -412,7 +403,7 @@ bool CWinEventsX11Imp::MessagePump()
       case ClientMessage:
       {
         if ((unsigned int)xevent.xclient.data.l[0] == WinEvents->m_wmDeleteMessage)
-          if (!g_application.m_bStop) CApplicationMessenger::Get().Quit();
+          if (!g_application.m_bStop) CApplicationMessenger::GetInstance().PostMsg(TMSG_QUIT);
         break;
       }
 
@@ -461,8 +452,8 @@ bool CWinEventsX11Imp::MessagePump()
           case XLookupChars:
           case XLookupBoth:
           {
-            CStdString   data(WinEvents->m_keybuf, len);
-            CStdStringW keys;
+            std::string data(WinEvents->m_keybuf, len);
+            std::wstring keys;
             g_charsetConverter.utf8ToW(data, keys, false);
 
             if (keys.length() == 0)
@@ -541,7 +532,7 @@ bool CWinEventsX11Imp::MessagePump()
       // lose mouse coverage
       case LeaveNotify:
       {
-        g_Mouse.SetActive(false);
+        CInputManager::GetInstance().SetMouseActive(false);
         break;
       }
 
@@ -593,36 +584,12 @@ bool CWinEventsX11Imp::MessagePump()
     }// switch event.type
   }// while
 
-#if defined(HAS_XRANDR)
   if (WinEvents && WinEvents->m_xrrEventPending && WinEvents->m_xrrFailSafeTimer.IsTimePast())
   {
     CLog::Log(LOGERROR,"CWinEventsX11::MessagePump - missed XRR Events");
     g_Windowing.NotifyXRREvent();
     WinEvents->m_xrrEventPending = false;
   }
-#endif
-
-#ifdef HAS_SDL_JOYSTICK
-  SDL_Event event;
-  while (SDL_PollEvent(&event))
-  {
-    switch(event.type)
-    {
-      case SDL_JOYBUTTONUP:
-      case SDL_JOYBUTTONDOWN:
-      case SDL_JOYAXISMOTION:
-      case SDL_JOYBALLMOTION:
-      case SDL_JOYHATMOTION:
-        g_Joystick.Update(event);
-        ret = true;
-        break;
-
-      default:
-        break;
-    }
-    memset(&event, 0, sizeof(SDL_Event));
-  }
-#endif
 
   return ret;
 }

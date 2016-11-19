@@ -23,7 +23,7 @@
 #endif //!TARGET_WINDOWS
 
 #include "Win32InterfaceForCLog.h"
-#include "win32/WIN32Util.h"
+#include "platform/win32/WIN32Util.h"
 #include "utils/StringUtils.h"
 #include "utils/auto_buffer.h"
 
@@ -67,6 +67,7 @@ bool CWin32InterfaceForCLog::OpenLogFile(const std::string& logFilename, const s
   static const unsigned char BOM[3] = { 0xEF, 0xBB, 0xBF };
   DWORD written;
   (void)WriteFile(m_hFile, BOM, sizeof(BOM), &written, NULL); // write BOM, ignore possible errors
+  (void)FlushFileBuffers(m_hFile);
 
   return true;
 }
@@ -91,7 +92,6 @@ bool CWin32InterfaceForCLog::WriteStringToLog(const std::string& logString)
 
   DWORD written;
   const bool ret = (WriteFile(m_hFile, strData.c_str(), strData.length(), &written, NULL) != 0) && written == strData.length();
-  (void)FlushFileBuffers(m_hFile);
 
   return ret;
 }
@@ -110,11 +110,12 @@ void CWin32InterfaceForCLog::PrintDebugString(const std::string& debugString)
 #endif // _DEBUG
 }
 
-void CWin32InterfaceForCLog::GetCurrentLocalTime(int& hour, int& minute, int& second)
+void CWin32InterfaceForCLog::GetCurrentLocalTime(int& hour, int& minute, int& second, double& millisecond)
 {
   SYSTEMTIME time;
   GetLocalTime(&time);
   hour = time.wHour;
   minute = time.wMinute;
   second = time.wSecond;
+  millisecond = static_cast<double>(time.wMilliseconds);
 }

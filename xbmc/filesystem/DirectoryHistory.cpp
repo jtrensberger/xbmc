@@ -23,7 +23,7 @@
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 
-using namespace std;
+#include <algorithm>
 
 const std::string& CDirectoryHistory::CPathHistoryItem::GetPath(bool filter /* = false */) const
 {
@@ -79,7 +79,11 @@ const std::string& CDirectoryHistory::GetSelectedItem(const std::string& strDire
 void CDirectoryHistory::AddPath(const std::string& strPath, const std::string &strFilterPath /* = "" */)
 {
   if (!m_vecPathHistory.empty() && m_vecPathHistory.back().m_strPath == strPath)
+  {
+    if (!strFilterPath.empty())
+      m_vecPathHistory.back().m_strFilterPath = strFilterPath;
     return;
+  }
 
   CPathHistoryItem item;
   item.m_strPath = strPath;
@@ -107,7 +111,7 @@ bool CDirectoryHistory::IsInHistory(const std::string &path) const
 {
   std::string slashEnded(path);
   URIUtils::AddSlashAtEnd(slashEnded);
-  for (vector<CPathHistoryItem>::const_iterator i = m_vecPathHistory.begin(); i != m_vecPathHistory.end(); ++i)
+  for (std::vector<CPathHistoryItem>::const_iterator i = m_vecPathHistory.begin(); i != m_vecPathHistory.end(); ++i)
   {
     std::string testPath(i->GetPath());
     URIUtils::AddSlashAtEnd(testPath);

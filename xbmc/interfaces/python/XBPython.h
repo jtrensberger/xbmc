@@ -26,12 +26,15 @@
 #include "threads/Thread.h"
 #include "interfaces/IAnnouncer.h"
 #include "interfaces/generic/ILanguageInvocationHandler.h"
-#include "addons/IAddon.h"
+#include "ServiceBroker.h"
 
-#include <boost/shared_ptr.hpp>
+#include <memory>
 #include <vector>
 
+#define g_pythonParser CServiceBroker::GetXBPython()
+
 class CPythonInvoker;
+class CVariant;
 
 typedef struct {
   int id;
@@ -89,19 +92,18 @@ public:
   void OnScanFinished(const std::string &library);
   void OnCleanStarted(const std::string &library);
   void OnCleanFinished(const std::string &library);
-  void OnAbortRequested(const std::string &ID="");
   void OnNotification(const std::string &sender, const std::string &method, const std::string &data);
 
   virtual void Process();
+  virtual void PulseGlobalEvent();
   virtual void Uninitialize();
+  virtual bool OnScriptInitialized(ILanguageInvoker *invoker);
   virtual void OnScriptStarted(ILanguageInvoker *invoker);
+  virtual void OnScriptAbortRequested(ILanguageInvoker *invoker);
   virtual void OnScriptEnded(ILanguageInvoker *invoker);
+  virtual void OnScriptFinalized(ILanguageInvoker *invoker);
   virtual ILanguageInvoker* CreateInvoker();
 
-  bool InitializeEngine();
-  void FinalizeScript();
-
-  void PulseGlobalEvent();
   bool WaitForEvent(CEvent& hEvent, unsigned int milliseconds);
 
   void RegisterExtensionLib(LibraryLoader *pLib);
@@ -133,5 +135,3 @@ private:
   // loaded by it and unload them first (not done by finalize)
   PythonExtensionLibraries m_extensions;
 };
-
-extern XBPython g_pythonParser;

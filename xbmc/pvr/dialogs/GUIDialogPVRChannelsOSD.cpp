@@ -18,37 +18,36 @@
  *
  */
 
-#include "GUIDialogPVRChannelsOSD.h"
 #include "Application.h"
-#include "ApplicationMessenger.h"
 #include "FileItem.h"
-#include "guilib/GUIWindowManager.h"
-#include "guilib/Key.h"
-#include "guilib/LocalizeStrings.h"
-#include "dialogs/GUIDialogKaiToast.h"
-#include "dialogs/GUIDialogOK.h"
-#include "GUIDialogPVRGuideInfo.h"
-#include "view/ViewState.h"
-#include "settings/Settings.h"
 #include "GUIInfoManager.h"
-#include "cores/IPlayer.h"
+#include "dialogs/GUIDialogKaiToast.h"
+#include "epg/EpgContainer.h"
+#include "guilib/LocalizeStrings.h"
+#include "guilib/GUIWindowManager.h"
+#include "input/Key.h"
+#include "messaging/ApplicationMessenger.h"
+#include "settings/Settings.h"
 #include "utils/StringUtils.h"
+#include "view/ViewState.h"
 
 #include "pvr/PVRManager.h"
 #include "pvr/channels/PVRChannelGroupsContainer.h"
-#include "epg/Epg.h"
-#include "pvr/timers/PVRTimerInfoTag.h"
-#include "pvr/channels/PVRChannelGroupsContainer.h"
 #include "pvr/windows/GUIWindowPVRBase.h"
+
+#include "GUIDialogPVRChannelsOSD.h"
+#include "GUIDialogPVRGuideInfo.h"
 
 using namespace PVR;
 using namespace EPG;
+using namespace KODI::MESSAGING;
+
+#define MAX_INVALIDATION_FREQUENCY 2000 // limit to one invalidation per X milliseconds
 
 #define CONTROL_LIST                  11
 
 CGUIDialogPVRChannelsOSD::CGUIDialogPVRChannelsOSD() :
-    CGUIDialog(WINDOW_DIALOG_PVR_OSD_CHANNELS, "DialogPVRChannelsOSD.xml"),
-    Observer()
+    CGUIDialog(WINDOW_DIALOG_PVR_OSD_CHANNELS, "DialogPVRChannelsOSD.xml")
 {
   m_vecItems = new CFileItemList;
 }
@@ -57,8 +56,8 @@ CGUIDialogPVRChannelsOSD::~CGUIDialogPVRChannelsOSD()
 {
   delete m_vecItems;
 
-  if (IsObserving(g_infoManager))
-    g_infoManager.UnregisterObserver(this);
+  g_infoManager.UnregisterObserver(this);
+  g_EpgContainer.UnregisterObserver(this);
 }
 
 bool CGUIDialogPVRChannelsOSD::OnMessage(CGUIMessage& message)
@@ -89,6 +88,22 @@ bool CGUIDialogPVRChannelsOSD::OnMessage(CGUIMessage& message)
       }
     }
     break;
+  case GUI_MSG_REFRESH_LIST:
+    {
+      switch(message.GetParam1())
+      {
+        case ObservableMessageCurrentItem:
+          m_viewControl.SetItems(*m_vecItems);
+          return true;
+        case ObservableMessageEpg:
+        case ObservableMessageEpgContainer:
+        case ObservableMessageEpgActiveItem:
+          if (IsActive())
+            SetInvalid();
+          return true;
+      }
+    }
+    break;
   }
 
   return CGUIDialog::OnMessage(message);
@@ -112,17 +127,17 @@ void CGUIDialogPVRChannelsOSD::OnDeinitWindow(int nextWindowID)
 {
   if (m_group)
   {
-    g_PVRManager.SetPlayingGroup(m_group);
-    m_group.reset();
-  }
+    if (m_group != GetPlayingGroup())
+    {
+      CGUIWindowPVRBase::SetSelectedItemPath(g_PVRManager.IsPlayingRadio(), GetLastSelectedItemPath(m_group->GroupID()));
+      g_PVRManager.SetPlayingGroup(m_group);
+    }
+    else
+    {
+      CGUIWindowPVRBase::SetSelectedItemPath(g_PVRManager.IsPlayingRadio(), m_viewControl.GetSelectedItemPath());
+    }
 
-  // set selected item path
-  int selectedItem = m_viewControl.GetSelectedItem();
-  if (selectedItem > -1)
-  {
-    CFileItemPtr fileItem = m_vecItems->Get(selectedItem);
-    if (fileItem)
-      CGUIWindowPVRBase::SetSelectedItemPath(g_PVRManager.IsPlayingRadio(), fileItem->GetPath());
+    m_group.reset();
   }
 
   CGUIDialog::OnDeinitWindow(nextWindowID);
@@ -157,8 +172,8 @@ bool CGUIDialogPVRChannelsOSD::OnAction(const CAction &action)
 
 CPVRChannelGroupPtr CGUIDialogPVRChannelsOSD::GetPlayingGroup()
 {
-  CPVRChannelPtr channel;
-  if (g_PVRManager.GetCurrentChannel(channel))
+  CPVRChannelPtr channel(g_PVRManager.GetCurrentChannel());
+  if (channel)
     return g_PVRManager.GetPlayingGroup(channel->IsRadio());
   else
     return CPVRChannelGroupPtr();
@@ -166,19 +181,18 @@ CPVRChannelGroupPtr CGUIDialogPVRChannelsOSD::GetPlayingGroup()
 
 void CGUIDialogPVRChannelsOSD::Update()
 {
+  g_infoManager.RegisterObserver(this);
+  g_EpgContainer.RegisterObserver(this);
+
   // lock our display, as this window is rendered from the player thread
   g_graphicsContext.Lock();
-
-  if (!IsObserving(g_infoManager))
-    g_infoManager.RegisterObserver(this);
-
   m_viewControl.SetCurrentView(DEFAULT_VIEW_LIST);
 
   // empty the list ready for population
   Clear();
 
-  CPVRChannelPtr channel;
-  if (g_PVRManager.GetCurrentChannel(channel))
+  CPVRChannelPtr channel(g_PVRManager.GetCurrentChannel());
+  if (channel)
   {
     CPVRChannelGroupPtr group = g_PVRManager.GetPlayingGroup(channel->IsRadio());
     if (group)
@@ -190,12 +204,24 @@ void CGUIDialogPVRChannelsOSD::Update()
       {
         m_group = group;
         m_viewControl.SetSelectedItem(CGUIWindowPVRBase::GetSelectedItemPath(channel->IsRadio()));
-        SaveSelectedItem(group->GroupID());
+        SaveSelectedItemPath(group->GroupID());
       }
     }
   }
 
   g_graphicsContext.Unlock();
+}
+
+void CGUIDialogPVRChannelsOSD::SetInvalid()
+{
+  if (m_refreshTimeout.IsTimePast())
+  {
+    VECFILEITEMS items = m_vecItems->GetList();
+    for (VECFILEITEMS::iterator it = items.begin(); it != items.end(); ++it)
+      (*it)->SetInvalid();
+    CGUIDialog::SetInvalid();
+    m_refreshTimeout.Set(MAX_INVALIDATION_FREQUENCY);
+  }
 }
 
 void CGUIDialogPVRChannelsOSD::SaveControlStates()
@@ -204,7 +230,7 @@ void CGUIDialogPVRChannelsOSD::SaveControlStates()
 
   CPVRChannelGroupPtr group = GetPlayingGroup();
   if (group)
-    SaveSelectedItem(group->GroupID());
+    SaveSelectedItemPath(group->GroupID());
 }
 
 void CGUIDialogPVRChannelsOSD::RestoreControlStates()
@@ -214,7 +240,11 @@ void CGUIDialogPVRChannelsOSD::RestoreControlStates()
   CPVRChannelGroupPtr group = GetPlayingGroup();
   if (group)
   {
-    m_viewControl.SetSelectedItem(GetLastSelectedItem(group->GroupID()));
+    std::string path = GetLastSelectedItemPath(group->GroupID());
+    if (!path.empty())
+      m_viewControl.SetSelectedItem(path);
+    else
+      m_viewControl.SetSelectedItem(0);
   }
 }
 
@@ -226,10 +256,10 @@ void CGUIDialogPVRChannelsOSD::Clear()
 
 void CGUIDialogPVRChannelsOSD::CloseOrSelect(unsigned int iItem)
 {
-  if (CSettings::Get().GetBool("pvrmenu.closechannelosdonswitch"))
+  if (CSettings::GetInstance().GetBool(CSettings::SETTING_PVRMENU_CLOSECHANNELOSDONSWITCH))
   {
-    if (CSettings::Get().GetInt("pvrmenu.displaychannelinfo") > 0)
-      g_PVRManager.ShowPlayerInfo(CSettings::Get().GetInt("pvrmenu.displaychannelinfo"));
+    if (CSettings::GetInstance().GetInt(CSettings::SETTING_PVRMENU_DISPLAYCHANNELINFO) > 0)
+      g_PVRManager.ShowPlayerInfo(CSettings::GetInstance().GetInt(CSettings::SETTING_PVRMENU_DISPLAYCHANNELINFO));
     Close();
   }
   else
@@ -250,9 +280,9 @@ void CGUIDialogPVRChannelsOSD::GotoChannel(int item)
 
   if (g_PVRManager.IsPlaying() && pItem->HasPVRChannelInfoTag() && g_application.m_pPlayer->HasPlayer())
   {
-    CPVRChannel *channel = pItem->GetPVRChannelInfoTag();
-    if (!g_PVRManager.CheckParentalLock(*channel) ||
-        !g_application.m_pPlayer->SwitchChannel(*channel))
+    CPVRChannelPtr channel = pItem->GetPVRChannelInfoTag();
+    if (!g_PVRManager.CheckParentalLock(channel) ||
+        !g_application.m_pPlayer->SwitchChannel(channel))
     {
       std::string msg = StringUtils::Format(g_localizeStrings.Get(19035).c_str(), channel->ChannelName().c_str()); // CHANNELNAME could not be played. Check the log for details.
       CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Error,
@@ -262,7 +292,7 @@ void CGUIDialogPVRChannelsOSD::GotoChannel(int item)
     }
   }
   else
-    CApplicationMessenger::Get().PlayFile(*pItem);
+    CApplicationMessenger::GetInstance().PostMsg(TMSG_MEDIA_PLAY, 0, 0, static_cast<void*>(new CFileItem(*pItem)));
 
   m_group = GetPlayingGroup();
 
@@ -277,15 +307,14 @@ void CGUIDialogPVRChannelsOSD::ShowInfo(int item)
   CFileItemPtr pItem = m_vecItems->Get(item);
   if (pItem && pItem->IsPVRChannel())
   {
-    CPVRChannel *channel = pItem->GetPVRChannelInfoTag();
-    if (!g_PVRManager.CheckParentalLock(*channel))
+    CPVRChannelPtr channel(pItem->GetPVRChannelInfoTag());
+    if (!g_PVRManager.CheckParentalLock(channel))
       return;
 
     /* Get the current running show on this channel from the EPG storage */
-    CEpgInfoTag epgnow;
-    if (!channel->GetEPGNow(epgnow))
+    CEpgInfoTagPtr epgnow(channel->GetEPGNow());
+    if (!epgnow)
       return;
-    CFileItem *itemNow  = new CFileItem(epgnow);
 
     /* Load programme info dialog */
     CGUIDialogPVRGuideInfo* pDlgInfo = (CGUIDialogPVRGuideInfo*)g_windowManager.GetWindow(WINDOW_DIALOG_PVR_GUIDE_INFO);
@@ -293,9 +322,8 @@ void CGUIDialogPVRChannelsOSD::ShowInfo(int item)
       return;
 
     /* inform dialog about the file item and open dialog window */
-    pDlgInfo->SetProgInfo(itemNow);
-    pDlgInfo->DoModal();
-    delete itemNow; /* delete previuosly created FileItem */
+    pDlgInfo->SetProgInfo(epgnow);
+    pDlgInfo->Open();
   }
 
   return;
@@ -325,23 +353,19 @@ CGUIControl *CGUIDialogPVRChannelsOSD::GetFirstFocusableControl(int id)
 
 void CGUIDialogPVRChannelsOSD::Notify(const Observable &obs, const ObservableMessage msg)
 {
-  if (msg == ObservableMessageCurrentItem)
-  {
-    g_graphicsContext.Lock();
-    m_viewControl.SetItems(*m_vecItems);
-    g_graphicsContext.Unlock();
-  }
+  CGUIMessage m(GUI_MSG_REFRESH_LIST, GetID(), 0, msg);
+  CApplicationMessenger::GetInstance().SendGUIMessage(m);
 }
 
-void CGUIDialogPVRChannelsOSD::SaveSelectedItem(int iGroupID)
+void CGUIDialogPVRChannelsOSD::SaveSelectedItemPath(int iGroupID)
 {
-  m_groupSelectedItems[iGroupID] = m_viewControl.GetSelectedItem();
+  m_groupSelectedItemPaths[iGroupID] = m_viewControl.GetSelectedItemPath();
 }
 
-int CGUIDialogPVRChannelsOSD::GetLastSelectedItem(int iGroupID) const
+std::string CGUIDialogPVRChannelsOSD::GetLastSelectedItemPath(int iGroupID) const
 {
-  std::map<int,int>::const_iterator it = m_groupSelectedItems.find(iGroupID);
-  if (it != m_groupSelectedItems.end())
+  std::map<int, std::string>::const_iterator it = m_groupSelectedItemPaths.find(iGroupID);
+  if (it != m_groupSelectedItemPaths.end())
     return it->second;
-  return 0;
+  return "";
 }

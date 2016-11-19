@@ -24,18 +24,16 @@
 #include "WinEvents.h"
 #include "WinEventsSDL.h"
 #include "Application.h"
-#include "ApplicationMessenger.h"
+#include "messaging/ApplicationMessenger.h"
 #include "GUIUserMessages.h"
 #include "settings/DisplaySettings.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/Key.h"
-#ifdef HAS_SDL_JOYSTICK
-#include "input/SDLJoystick.h"
-#endif
+#include "input/Key.h"
+#include "input/InputManager.h"
 #include "input/MouseStat.h"
 #include "WindowingFactory.h"
 #if defined(TARGET_DARWIN)
-#include "osx/CocoaInterface.h"
+#include "platform/darwin/osx/CocoaInterface.h"
 #endif
 
 #if defined(TARGET_POSIX) && !defined(TARGET_DARWIN) && !defined(TARGET_ANDROID)
@@ -44,6 +42,8 @@
 #include "input/XBMC_keysym.h"
 #include "utils/log.h"
 #endif
+
+using namespace KODI::MESSAGING;
 
 #if defined(TARGET_POSIX) && !defined(TARGET_DARWIN)
 // The following chunk of code is Linux specific. For keys that have
@@ -84,6 +84,8 @@ static uint16_t SymMappingsEvdev[][2] =
 , { 179, XBMCK_LAUNCH_MEDIA_SELECT } // Launch media select
 , { 180, XBMCK_BROWSER_HOME }        // Browser home
 , { 181, XBMCK_BROWSER_REFRESH }     // Browser refresh
+, { 208, XBMCK_MEDIA_PLAY_PAUSE }    // Play_Pause
+, { 209, XBMCK_MEDIA_PLAY_PAUSE }    // Play_Pause
 , { 214, XBMCK_ESCAPE }              // Close
 , { 215, XBMCK_MEDIA_PLAY_PAUSE }    // Play_Pause
 , { 216, 0x66 /* 'f' */}             // Forward
@@ -224,19 +226,8 @@ bool CWinEventsSDL::MessagePump()
     {
       case SDL_QUIT:
         if (!g_application.m_bStop) 
-          CApplicationMessenger::Get().Quit();
+          CApplicationMessenger::GetInstance().PostMsg(TMSG_QUIT);
         break;
-
-#ifdef HAS_SDL_JOYSTICK
-      case SDL_JOYBUTTONUP:
-      case SDL_JOYBUTTONDOWN:
-      case SDL_JOYAXISMOTION:
-      case SDL_JOYBALLMOTION:
-      case SDL_JOYHATMOTION:
-        g_Joystick.Update(event);
-        ret = true;
-        break;
-#endif
 
       case SDL_ACTIVEEVENT:
         //If the window was inconified or restored
@@ -341,7 +332,7 @@ bool CWinEventsSDL::MessagePump()
       {
         if (0 == (SDL_GetAppState() & SDL_APPMOUSEFOCUS))
         {
-          g_Mouse.SetActive(false);
+          CInputManager::GetInstance().SetMouseActive(false);
 #if defined(TARGET_DARWIN_OSX)
           // See CApplication::ProcessSlow() for a description as to why we call Cocoa_HideMouse.
           // this is here to restore the pointer when toggling back to window mode from fullscreen.
@@ -364,16 +355,6 @@ bool CWinEventsSDL::MessagePump()
       }
       case SDL_VIDEORESIZE:
       {
-        // Under linux returning from fullscreen, SDL sends an extra event to resize to the desktop
-        // resolution causing the previous window dimensions to be lost. This is needed to rectify
-        // that problem.
-        if(!g_Windowing.IsFullScreen())
-        {
-          int RES_SCREEN = g_Windowing.DesktopResolution(g_Windowing.GetCurrentScreen());
-          if((event.resize.w == CDisplaySettings::Get().GetResolutionInfo(RES_SCREEN).iWidth) &&
-              (event.resize.h == CDisplaySettings::Get().GetResolutionInfo(RES_SCREEN).iHeight))
-            break;
-        }
         XBMC_Event newEvent;
         newEvent.type = XBMC_VIDEORESIZE;
         newEvent.resize.w = event.resize.w;
@@ -434,7 +415,7 @@ bool CWinEventsSDL::ProcessOSXShortcuts(SDL_Event& event)
     {
     case SDLK_q:  // CMD-q to quit
       if (!g_application.m_bStop)
-        CApplicationMessenger::Get().Quit();
+        CApplicationMessenger::GetInstance().PostMsg(TMSG_QUIT);
       return true;
 
     case SDLK_f: // CMD-f to toggle fullscreen
@@ -450,20 +431,7 @@ bool CWinEventsSDL::ProcessOSXShortcuts(SDL_Event& event)
       return true;
 
     case SDLK_m: // CMD-m to minimize
-      CApplicationMessenger::Get().Minimize();
-      return true;
-
-    case SDLK_v: // CMD-v to paste clipboard text
-      if (g_Windowing.IsTextInputEnabled())
-      {
-        const char *szStr = Cocoa_Paste();
-        if (szStr)
-        {
-          CGUIMessage msg(GUI_MSG_INPUT_TEXT, 0, 0);
-          msg.SetLabel(szStr);
-          g_windowManager.SendMessage(msg, g_windowManager.GetFocusedWindow());
-        }
-      }
+      CApplicationMessenger::GetInstance().PostMsg(TMSG_MINIMIZE);
       return true;
 
     default:

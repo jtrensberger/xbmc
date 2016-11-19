@@ -17,8 +17,6 @@
   Name "${APP_NAME}"
   OutFile "${APP_NAME}Setup-${app_revision}-${app_branch}.exe"
 
-  XPStyle on
-  
   ;Default installation folder
   InstallDir "$PROGRAMFILES\${APP_NAME}"
 
@@ -28,12 +26,25 @@
   ;Request application privileges for Windows Vista
   RequestExecutionLevel admin
 
+  InstProgressFlags smooth
+  
+  ; Installer file properties
+  VIProductVersion                   ${VERSION_NUMBER}
+  VIAddVersionKey "ProductName"      "${APP_NAME}"
+  VIAddVersionKey "Comments"         "This application and its source code are freely distributable."
+  VIAddVersionKey "LegalCopyright"   "The trademark is owned by ${COMPANY_NAME}"
+  VIAddVersionKey "CompanyName"      "${COMPANY_NAME}"
+  VIAddVersionKey "FileDescription"  "${APP_NAME} ${VERSION_NUMBER} Setup"
+  VIAddVersionKey "FileVersion"      "${VERSION_NUMBER}"
+  VIAddVersionKey "ProductVersion"   "${VERSION_NUMBER}"
+  VIAddVersionKey "LegalTrademarks"  "${APP_NAME}"
+  ;VIAddVersionKey "OriginalFilename" "${APP_NAME}Setup-${app_revision}-${app_branch}.exe"
+
 ;--------------------------------
 ;Variables
 
   Var StartMenuFolder
   Var PageProfileState
-  Var DirectXSetupError
   Var VSRedistSetupError
   Var /GLOBAL CleanDestDir
   
@@ -41,9 +52,12 @@
 ;Interface Settings
 
   !define MUI_HEADERIMAGE
-  !define MUI_ICON "..\..\tools\windows\packaging\media\xbmc.ico"
-  ;!define MUI_HEADERIMAGE_BITMAP "..\..\tools\windows\packaging\media\installer\header.bmp"
-  ;!define MUI_WELCOMEFINISHPAGE_BITMAP "..\..\tools\windows\packaging\media\installer\welcome-left.bmp"
+  !define MUI_ICON "..\..\tools\windows\packaging\media\application.ico"
+  !define MUI_UNICON "..\..\tools\windows\packaging\media\application.ico"
+  !define MUI_HEADERIMAGE_BITMAP "..\..\tools\windows\packaging\media\installer\header.bmp"
+  !define MUI_HEADERIMAGE_UNBITMAP "..\..\tools\windows\packaging\media\installer\header.bmp"
+  !define MUI_WELCOMEFINISHPAGE_BITMAP "..\..\tools\windows\packaging\media\installer\welcome-left.bmp"
+  !define MUI_UNWELCOMEFINISHPAGE_BITMAP "..\..\tools\windows\packaging\media\installer\welcome-left.bmp"
   !define MUI_COMPONENTSPAGE_SMALLDESC
   !define MUI_FINISHPAGE_LINK "Please visit ${WEBSITE} for more information."
   !define MUI_FINISHPAGE_LINK_LOCATION "${WEBSITE}"
@@ -66,7 +80,6 @@
   !insertmacro MUI_PAGE_STARTMENU Application $StartMenuFolder  
 
   !insertmacro MUI_PAGE_INSTFILES
-  !define MUI_PAGE_CUSTOMFUNCTION_PRE CallbackPreFinish
   !insertmacro MUI_PAGE_FINISH
 
   !insertmacro MUI_UNPAGE_WELCOME
@@ -82,63 +95,10 @@
 
 ;--------------------------------
 ;HelperFunction
-Function CallbackPreFinish 
-  Var /GLOBAL ShouldMigrateUserData
-  StrCpy $ShouldMigrateUserData "0"
-  Var /GLOBAL OldXBMCInstallationFound
-  StrCpy $OldXBMCInstallationFound "0"
-
-  Call HandleOldXBMCInstallation
-  ;Migrate userdata from XBMC to Kodi
-  Call HandleUserdataMigration
-FunctionEnd
 
 Function CallbackDirLeave
   ;deinstall kodi if it is already there in destination folder
   Call HandleKodiInDestDir
-FunctionEnd
-
-Function HandleUserdataMigration
-  Var /GLOBAL INSTDIR_XBMC
-  ReadRegStr $INSTDIR_XBMC HKCU "Software\XBMC" ""
-
-  ;Migration from XBMC to Kodi
-  ;Move XBMC portable_data and appdata folder if exists to new location
-  ${If} $ShouldMigrateUserData == "1"
-      ${If} ${FileExists} "$APPDATA\XBMC\*.*"
-      ${AndIfNot} ${FileExists} "$APPDATA\${APP_NAME}\*.*"
-          Rename "$APPDATA\XBMC\" "$APPDATA\${APP_NAME}\"
-          MessageBox MB_OK|MB_ICONEXCLAMATION|MB_TOPMOST|MB_SETFOREGROUND "Your current XBMC userdata folder was moved to the new ${APP_NAME} userdata location.$\nThis to make the transition as smooth as possible without any user interactions needed."
-      ${EndIf}
-  ${Else}
-    ; old installation was found but not uninstalled - inform the user
-    ; that his userdata is not automatically migrted
-    ${If} $OldXBMCInstallationFound == "1"
-      MessageBox MB_OK|MB_ICONEXCLAMATION|MB_TOPMOST|MB_SETFOREGROUND "There was a former XBMC Installation detected but you didn't uninstall it. The older profile data will not be moved to the ${APP_NAME} userdata location. ${APP_NAME} will use default profile settings."
-    ${EndIf}
-  ${EndIf}
-FunctionEnd
-
-Function HandleOldXBMCInstallation
-  Var /GLOBAL INSTDIR_XBMC_OLD
-  ReadRegStr $INSTDIR_XBMC_OLD HKCU "Software\XBMC" ""
-  
-  ;ask if a former XBMC installation should be uninstalled if detected
-  ${IfNot} $INSTDIR_XBMC_OLD == ""
-    StrCpy $OldXBMCInstallationFound "1"
-    MessageBox MB_YESNO|MB_ICONQUESTION "A previous XBMC installation was detected. Would you like to uninstall it?" IDYES true IDNO false
-    true:
-      DetailPrint "Uninstalling $INSTDIR_XBMC"
-      SetDetailsPrint none
-      ExecWait '"$INSTDIR_XBMC_OLD\uninstall.exe" /S _?=$INSTDIR_XBMC_OLD'
-      SetDetailsPrint both
-      ;this also removes the uninstall.exe which doesn't remove it self...
-      Delete "$INSTDIR_XBMC_OLD\uninstall.exe"
-      ;if the directory is now empty we can safely remove it (rmdir won't remove non-empty dirs!)
-      RmDir "$INSTDIR_XBMC_OLD"
-      StrCpy $ShouldMigrateUserData "1"
-    false:
-  ${EndIf}
 FunctionEnd
 
 Function HandleOldKodiInstallation
@@ -152,7 +112,7 @@ Function HandleOldKodiInstallation
   ${IfNot}    $CleanDestDir == "0"
   ${AndIfNot} $INSTDIR_KODI == ""
   ${AndIfNot} $INSTDIR_KODI == $INSTDIR
-    MessageBox MB_YESNO|MB_ICONQUESTION  "A previous ${APP_NAME} installation in a different folder was detected. Would you like to uninstall it?" IDYES true IDNO false
+    MessageBox MB_YESNO|MB_ICONQUESTION  "A previous ${APP_NAME} installation in a different folder was detected. Would you like to uninstall it?$\nYour current settings and library data will be kept intact." IDYES true IDNO false
     true:
       DetailPrint "Uninstalling $INSTDIR_KODI"
       SetDetailsPrint none
@@ -170,7 +130,7 @@ Function HandleKodiInDestDir
   ;if former Kodi installation was detected in the destination directory - uninstall it first
   ${IfNot} $INSTDIR == ""
   ${AndIf} ${FileExists} "$INSTDIR\uninstall.exe"
-    MessageBox MB_YESNO|MB_ICONQUESTION  "A previous installation was detected in the selected destination folder. Do you really want to overwrite it?" IDYES true IDNO false
+    MessageBox MB_YESNO|MB_ICONQUESTION  "A previous installation was detected in the selected destination folder. Do you really want to overwrite it?$\nYour settings and library data will be kept intact." IDYES true IDNO false
     true:
       StrCpy $CleanDestDir "1"
       Goto done
@@ -207,8 +167,6 @@ Section "${APP_NAME}" SecAPP
   SectionIn RO
   SectionIn 1 2 3 #section is in install type Normal/Full/Minimal
 
-  ;handle an old kodi installation in a folder different from the destination folder
-  Call HandleOldKodiInstallation
   ;deinstall kodi in destination dir if $CleanDestDir == "1" - meaning user has confirmed it
   Call DeinstallKodiInDestDir
 
@@ -217,23 +175,13 @@ Section "${APP_NAME}" SecAPP
   File "${app_root}\application\*.*"
   SetOutPath "$INSTDIR\addons"
   File /r "${app_root}\application\addons\*.*"
-  SetOutPath "$INSTDIR\language"
-  File /r "${app_root}\application\language\*.*"
+  File /nonfatal /r "${app_root}\addons\peripheral.*"
   SetOutPath "$INSTDIR\media"
   File /r "${app_root}\application\media\*.*"
-  SetOutPath "$INSTDIR\sounds"
-  File /r "${app_root}\application\sounds\*.*"
   SetOutPath "$INSTDIR\system"
   File /r "${app_root}\application\system\*.*"
-  
-  ;Turn off overwrite to prevent files in APPDATA\Kodi\userdata\ from being overwritten
-  SetOverwrite off
-  IfFileExists $INSTDIR\userdata\*.* 0 +2
-    SetOutPath "$APPDATA\${APP_NAME}\userdata"
-    File /r "${app_root}\application\userdata\*.*"
-  
-  ;Turn on overwrite for rest of install
-  SetOverwrite on
+  SetOutPath "$INSTDIR\userdata"
+  File /r "${app_root}\application\userdata\*.*"
 
   ;Store installation folder
   WriteRegStr HKCU "Software\${APP_NAME}" "" $INSTDIR
@@ -270,7 +218,7 @@ Section "${APP_NAME}" SecAPP
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}" \
                  "DisplayIcon" "$INSTDIR\${APP_NAME}.exe,0"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}" \
-                 "Publisher" "${COMPANY}"
+                 "Publisher" "${COMPANY_NAME}"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}" \
                  "HelpLink" "${WEBSITE}"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}" \
@@ -279,15 +227,19 @@ Section "${APP_NAME}" SecAPP
 SectionEnd
 
 ;*-addons.nsi are generated by genNsisIncludes.bat
+!include /nonfatal "audiodecoder-addons.nsi"
 !include /nonfatal "audioencoder-addons.nsi"
+!include /nonfatal "audiodsp-addons.nsi"
+!include /nonfatal "inputstream-addons.nsi"
 !include /nonfatal "pvr-addons.nsi"
-!include /nonfatal "skin-addons.nsi"
+!include /nonfatal "screensaver-addons.nsi"
+!include /nonfatal "visualization-addons.nsi"
 
 ;--------------------------------
 ;Descriptions
 
   ;Language strings
-  LangString DESC_SecAPP ${LANG_ENGLISH} "${APP_NAME}"
+  LangString DESC_SecAPP ${LANG_ENGLISH} "${APP_NAME} ${VERSION_NUMBER}"
 
   ;Assign language strings to sections
   !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
@@ -311,19 +263,18 @@ Function un.UnPageProfile
     Abort
   ${EndIf}
 
-  ${NSD_CreateLabel} 0 0 100% 12u "Do you want to delete the profile folder?"
+  ${NSD_CreateLabel} 0 0 100% 12u "Do you want to delete the profile folder which contains your ${APP_NAME} settings and library data?"
   Pop $0
 
   ${NSD_CreateText} 0 13u 100% 12u "$APPDATA\${APP_NAME}\"
   Pop $UnPageProfileEditBox
     SendMessage $UnPageProfileEditBox ${EM_SETREADONLY} 1 0
 
-  ${NSD_CreateLabel} 0 46u 100% 24u "Leave unchecked to keep the profile folder for later use or check to delete the profile folder."
+  ${NSD_CreateLabel} 0 30u 100% 24u "Leave the option box below unchecked to keep the profile folder which contains ${APP_NAME}'s settings and library data for later use. If you are sure you want to delete the profile folder you may check the option box.$\nWARNING: Deletion of the profile folder cannot be undone and you will lose all settings and library data."
   Pop $0
 
-  ${NSD_CreateCheckbox} 0 71u 100% 8u "Yes, also delete the profile folder."
+  ${NSD_CreateCheckbox} 0 71u 100% 8u "Yes, I am sure and grant permission to also delete the profile folder."
   Pop $UnPageProfileCheckbox
-  
 
   nsDialogs::Show
 FunctionEnd
@@ -340,23 +291,14 @@ Section "Uninstall"
   RMDir /r "$INSTDIR\addons"
   RMDir /r "$INSTDIR\language"
   RMDir /r "$INSTDIR\media"
-  RMDir /r "$INSTDIR\sounds"
   RMDir /r "$INSTDIR\system"
+  RMDir /r "$INSTDIR\userdata"
   Delete "$INSTDIR\*.*"
   
   ;Un-install User Data if option is checked, otherwise skip
   ${If} $UnPageProfileCheckbox_State == ${BST_CHECKED}
     RMDir /r "$APPDATA\${APP_NAME}\"
     RMDir /r "$INSTDIR\portable_data\"
-  ${Else}
-    ;Check if %appdata%\${APP_NAME}\userdata and portable_data contain no guisettings.xml
-    ;If that file does not exists, then delete those folders and $INSTDIR
-    IfFileExists $INSTDIR\portable_data\userdata\guisettings.xml +2
-      RMDir /r "$INSTDIR\portable_data\"
-      RMDir "$INSTDIR\"
-    IfFileExists "$APPDATA\${APP_NAME}\userdata\guisettings.xml" +2
-      RMDir /r "$APPDATA\${APP_NAME}\userdata\"
-      RMDir "$APPDATA\${APP_NAME}"
   ${EndIf}
   RMDir "$INSTDIR"
 
@@ -373,69 +315,24 @@ SectionEnd
 ;--------------------------------
 ;vs redist installer Section
 SectionGroup "Microsoft Visual C++ packages" SEC_VCREDIST
-Section "VS2008 C++ re-distributable Package (x86)" SEC_VCREDIST1
-  ;vc90 for python
-  DetailPrint "Running VS2008 re-distributable setup..."
-  SectionIn 1 2 #section is in install type Full 
-  SetOutPath "$TEMP\vc2008"
-  File "${app_root}\..\dependencies\vcredist\2008\vcredist_x86.exe"
-  ExecWait '"$TEMP\vc2008\vcredist_x86.exe" /q' $VSRedistSetupError
-  RMDir /r "$TEMP\vc2008"
-  DetailPrint "Finished VS2008 re-distributable setup"
-SectionEnd
 
-Section "VS2010 C++ re-distributable Package (x86)" SEC_VCREDIST2
-  DetailPrint "Running VS2010 re-distributable setup..."
-  SectionIn 1 2 #section is in install type Full 
-  SetOutPath "$TEMP\vc2010"
-  File "${app_root}\..\dependencies\vcredist\2008\vcredist_x86.exe"
-  ExecWait '"$TEMP\vc2010\vcredist_x86.exe" /q' $VSRedistSetupError
-  RMDir /r "$TEMP\vc2010"
-  DetailPrint "Finished VS2010 re-distributable setup"
-SectionEnd
-
-Section "VS2013 C++ re-distributable Package (x86)" SEC_VCREDIST3
-DetailPrint "Running VS2013 re-distributable setup..."
+Section "VS2015 C++ re-distributable Package (x86)" SEC_VCREDIST1
+DetailPrint "Running VS2015 re-distributable setup..."
   SectionIn 1 2 #section is in install type Full
-  SetOutPath "$TEMP\vc2013"
-  File "${app_root}\..\dependencies\vcredist\2013\vcredist_x86.exe"
-  ExecWait '"$TEMP\vc2013\vcredist_x86.exe" /q' $VSRedistSetupError
-  RMDir /r "$TEMP\vc2013"
-  DetailPrint "Finished VS2013 re-distributable setup"
+  SetOutPath "$TEMP\vc2015"
+  File "${app_root}\..\dependencies\vcredist\2015\vcredist_x86.exe"
+  ExecWait '"$TEMP\vc2015\vcredist_x86.exe" /install /quiet /norestart' $VSRedistSetupError
+  RMDir /r "$TEMP\vc2015"
+  DetailPrint "Finished VS2015 re-distributable setup"
   SetOutPath "$INSTDIR"
 SectionEnd
 
 SectionGroupEnd
-
-;--------------------------------
-;DirectX web-installer Section
-!define DXVERSIONDLL "$SYSDIR\D3DX9_43.dll"
-Section "DirectX Install" SEC_DIRECTX
-  SectionIn 1 2 #section is in install type Full/Normal and when not installed
-  DetailPrint "Running DirectX Setup..."
-  SetOutPath "$TEMP\dxsetup"
-  File "${app_root}\..\dependencies\dxsetup\*.*"
-  ExecWait '"$TEMP\dxsetup\dxsetup.exe" /silent' $DirectXSetupError
-  RMDir /r "$TEMP\dxsetup"
-  SetOutPath "$INSTDIR"
-  DetailPrint "Finished DirectX Setup"
-SectionEnd
-
-Section "-Check DirectX installation" SEC_DIRECTXCHECK
-
-  IfFileExists ${DXVERSIONDLL} +2 0
-    MessageBox MB_OK|MB_ICONSTOP|MB_TOPMOST|MB_SETFOREGROUND "DirectX9 wasn't installed properly.$\nPlease download the DirectX End-User Runtime from Microsoft and install it again."
-
-SectionEnd
 
 Function .onInit
   ${IfNot} ${AtLeastWinVista}
     MessageBox MB_OK|MB_ICONSTOP|MB_TOPMOST|MB_SETFOREGROUND "Windows Vista or above required.$\nThis program can not be run on Windows XP"
     Quit
   ${EndIf}
-  # set section 'SEC_DIRECTX' as selected and read-only if required dx version not found
-  IfFileExists ${DXVERSIONDLL} +3 0
-  IntOp $0 ${SF_SELECTED} | ${SF_RO}
-  SectionSetFlags ${SEC_DIRECTX} $0
   StrCpy $CleanDestDir "-1"
 FunctionEnd

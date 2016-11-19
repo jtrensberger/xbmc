@@ -22,7 +22,7 @@
 
 #include "Win32SMBDirectory.h"
 #include "FileItem.h"
-#include "win32/WIN32Util.h"
+#include "platform/win32/WIN32Util.h"
 #include "utils/SystemInfo.h"
 #include "utils/CharsetConverter.h"
 #include "URL.h"
@@ -41,7 +41,17 @@
 #include <lm.h>
 #pragma comment(lib, "Netapi32.lib")
 
+#include <cassert>
+
 using namespace XFILE;
+
+// local helper
+static inline bool worthTryToConnect(const DWORD lastErr)
+{
+  return lastErr != ERROR_FILE_NOT_FOUND      && lastErr != ERROR_BAD_NET_NAME  &&
+         lastErr != ERROR_NO_NET_OR_BAD_PATH  && lastErr != ERROR_NO_NETWORK    &&
+         lastErr != ERROR_BAD_NETPATH;
+}
 
 /**
 * Get servers recursively or get shares from specific server
@@ -101,7 +111,7 @@ bool CWin32SMBDirectory::GetDirectory(const CURL& url, CFileItemList &items)
   if (searchMask.empty())
     return false;
 
-  // TODO: support m_strFileMask, require rewrite of internal caching
+  //! @todo support m_strFileMask, require rewrite of internal caching
   if (searchMask.back() == '\\')
     searchMask += L'*';
   else
@@ -119,6 +129,9 @@ bool CWin32SMBDirectory::GetDirectory(const CURL& url, CFileItemList &items)
   if (hSearch == INVALID_HANDLE_VALUE)
   {
     DWORD searchErr = GetLastError();
+    if (!worthTryToConnect(searchErr))
+      return false;
+
     if (ConnectAndAuthenticate(authUrl, (m_flags & DIR_FLAG_ALLOW_PROMPT) != 0))
     {
       if (g_sysinfo.IsWindowsVersionAtLeast(CSysInfo::WindowsVersionWin7))
@@ -212,7 +225,7 @@ bool CWin32SMBDirectory::RealCreate(const CURL& url, bool tryToConnect)
       return RealExists(url, false); // is it file or directory?
     else
     {
-      if (tryToConnect)
+      if (tryToConnect && worthTryToConnect(GetLastError()))
       {
         CURL authUrl(url);
         if (ConnectAndAuthenticate(authUrl))
@@ -250,7 +263,7 @@ bool CWin32SMBDirectory::RealExists(const CURL& url, bool tryToConnect)
   if (url.GetHostName().empty())
     return true; // 'root' of network is always exist
     
-  // TODO: use real caseless string comparison everywhere in this function
+  //! @todo use real caseless string comparison everywhere in this function
   if (url.GetShareName().empty() || url.GetShareName() == url.GetFileName())
   {
     if (!url.GetShareName().empty())
@@ -309,7 +322,7 @@ bool CWin32SMBDirectory::RealExists(const CURL& url, bool tryToConnect)
   if (fileAttrs != INVALID_FILE_ATTRIBUTES)
     return (fileAttrs & FILE_ATTRIBUTE_DIRECTORY) != 0; // is file or directory?
 
-  if (tryToConnect)
+  if (tryToConnect && worthTryToConnect(GetLastError()))
   {
     CURL authUrl(url);
     if (ConnectAndAuthenticate(authUrl))
@@ -328,6 +341,9 @@ bool CWin32SMBDirectory::Remove(const CURL& url)
 
   if (RemoveDirectoryW(nameW.c_str()))
     return true;
+
+  if (!worthTryToConnect(GetLastError()))
+    return false;
 
   CURL authUrl(url);
   if (ConnectAndAuthenticate(authUrl) && RemoveDirectoryW(nameW.c_str()))

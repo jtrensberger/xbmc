@@ -34,15 +34,15 @@ class CLinuxTimezone : public ISettingCallback, public ISettingsHandler
 public:
    CLinuxTimezone();
 
-   virtual void OnSettingChanged(const CSetting *setting);
+   virtual void OnSettingChanged(const CSetting *setting) override;
 
-   virtual void OnSettingsLoaded();
+   virtual void OnSettingsLoaded() override;
 
    std::string GetOSConfiguredTimezone();
 
    std::vector<std::string> GetCounties();
-   std::vector<std::string> GetTimezonesByCountry(const std::string country);
-   std::string GetCountryByTimezone(const std::string timezone);
+   std::vector<std::string> GetTimezonesByCountry(const std::string& country);
+   std::string GetCountryByTimezone(const std::string& timezone);
 
    void SetTimezone(std::string timezone);
    int m_IsDST;

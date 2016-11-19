@@ -50,6 +50,7 @@ namespace PERIPHERALS
 #include "threads/Thread.h"
 #include "threads/CriticalSection.h"
 #include <queue>
+#include <vector>
 
 // undefine macro isset, it collides with function in cectypes.h
 #ifdef isset
@@ -58,6 +59,7 @@ namespace PERIPHERALS
 #include <libcec/cectypes.h>
 
 class DllLibCEC;
+class CVariant;
 
 namespace CEC
 {
@@ -67,6 +69,7 @@ namespace CEC
 namespace PERIPHERALS
 {
   class CPeripheralCecAdapterUpdateThread;
+  class CPeripheralCecAdapterReopenJob;
 
   typedef struct
   {
@@ -85,9 +88,10 @@ namespace PERIPHERALS
   class CPeripheralCecAdapter : public CPeripheralHID, public ANNOUNCEMENT::IAnnouncer, private CThread
   {
     friend class CPeripheralCecAdapterUpdateThread;
+    friend class CPeripheralCecAdapterReopenJob;
 
   public:
-    CPeripheralCecAdapter(const PeripheralScanResult& scanResult);
+    CPeripheralCecAdapter(const PeripheralScanResult& scanResult, CPeripheralBus* bus);
     virtual ~CPeripheralCecAdapter(void);
 
     void Announce(ANNOUNCEMENT::AnnouncementFlag flag, const char *sender, const char *message, const CVariant &data);
@@ -100,7 +104,7 @@ namespace PERIPHERALS
     bool IsMuted(void);
 
     // CPeripheral callbacks
-    void OnSettingChanged(const CStdString &strChangedSetting);
+    void OnSettingChanged(const std::string &strChangedSetting);
     void OnDeviceRemoved(void);
 
     // input
@@ -120,13 +124,13 @@ namespace PERIPHERALS
     bool IsRunning(void) const;
 
     bool OpenConnection(void);
-    bool ReopenConnection(void);
+    bool ReopenConnection(bool bAsync = false);
 
     void SetConfigurationFromSettings(void);
     void SetConfigurationFromLibCEC(const CEC::libcec_configuration &config);
     void SetVersionInfo(const CEC::libcec_configuration &configuration);
 
-    static void ReadLogicalAddresses(const CStdString &strString, CEC::cec_logical_addresses &addresses);
+    static void ReadLogicalAddresses(const std::string &strString, CEC::cec_logical_addresses &addresses);
     static void ReadLogicalAddresses(int iLocalisedId, CEC::cec_logical_addresses &addresses);
     bool WriteLogicalAddresses(const CEC::cec_logical_addresses& addresses, const std::string& strSettingName, const std::string& strAdvancedSettingName);
 
@@ -140,14 +144,15 @@ namespace PERIPHERALS
 
     void SetAudioSystemConnected(bool bSetTo);
     void SetMenuLanguage(const char *strLanguage);
+    void OnTvStandby(void);
 
     // callbacks from libCEC
-    static int CecLogMessage(void *cbParam, const CEC::cec_log_message message);
-    static int CecCommand(void *cbParam, const CEC::cec_command command);
-    static int CecConfiguration(void *cbParam, const CEC::libcec_configuration config);
-    static int CecAlert(void *cbParam, const CEC::libcec_alert alert, const CEC::libcec_parameter data);
+    static void CecLogMessage(void *cbParam, const CEC::cec_log_message* message);
+    static void CecCommand(void *cbParam, const CEC::cec_command* command);
+    static void CecConfiguration(void *cbParam, const CEC::libcec_configuration* config);
+    static void CecAlert(void *cbParam, const CEC::libcec_alert alert, const CEC::libcec_parameter data);
     static void CecSourceActivated(void *param, const CEC::cec_logical_address address, const uint8_t activated);
-    static int CecKeyPress(void *cbParam, const CEC::cec_keypress key);
+    static void CecKeyPress(void *cbParam, const CEC::cec_keypress* key);
 
     DllLibCEC*                        m_dll;
     CEC::ICECAdapter*                 m_cecAdapter;
@@ -155,7 +160,7 @@ namespace PERIPHERALS
     bool                              m_bHasButton;
     bool                              m_bIsReady;
     bool                              m_bHasConnectedAudioSystem;
-    CStdString                        m_strMenuLanguage;
+    std::string                        m_strMenuLanguage;
     CDateTime                         m_standbySent;
     std::vector<CecButtonPress>       m_buttonQueue;
     CecButtonPress                    m_currentButton;
@@ -177,7 +182,12 @@ namespace PERIPHERALS
     bool                              m_bActiveSourceBeforeStandby;
     bool                              m_bOnPlayReceived;
     bool                              m_bPlaybackPaused;
-    CStdString                        m_strComPort;
+    std::string                       m_strComPort;
+    bool                              m_bPowerOnScreensaver;
+    bool                              m_bUseTVMenuLanguage;
+    bool                              m_bSendInactiveSource;
+    bool                              m_bPowerOffScreensaver;
+    bool                              m_bShutdownOnStandby;
   };
 
   class CPeripheralCecAdapterUpdateThread : public CThread
@@ -191,7 +201,7 @@ namespace PERIPHERALS
 
   protected:
     void UpdateMenuLanguage(void);
-    CStdString UpdateAudioSystemStatus(void);
+    std::string UpdateAudioSystemStatus(void);
     bool WaitReady(void);
     bool SetInitialConfiguration(void);
     void Process(void);

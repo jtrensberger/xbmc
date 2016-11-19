@@ -20,7 +20,13 @@
  *
  */
 
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "settings/dialogs/GUIDialogSettingsManualBase.h"
+
+class CVariant;
 
 class CGUIDialogAudioSubtitleSettings : public CGUIDialogSettingsManualBase
 {
@@ -43,6 +49,7 @@ protected:
   // specialization of CGUIDialogSettingsBase
   virtual bool AllowResettingSettings() const { return false; }
   virtual void Save();
+  virtual void SetupView();
 
   // specialization of CGUIDialogSettingsManualBase
   virtual void InitializeSettings();
@@ -52,6 +59,8 @@ protected:
 
   void AddAudioStreams(CSettingGroup *group, const std::string &settingId);
   void AddSubtitleStreams(CSettingGroup *group, const std::string &settingId);
+
+  static bool IsPlayingPassthrough(const std::string &condition, const std::string &value, const CSetting *setting, void *data);
 
   static void AudioStreamsOptionFiller(const CSetting *setting, std::vector< std::pair<std::string, int> > &list, int &current, void *data);
   static void SubtitleStreamsOptionFiller(const CSetting *setting, std::vector< std::pair<std::string, int> > &list, int &current, void *data);
@@ -64,6 +73,7 @@ protected:
   bool m_passthrough;
   int m_subtitleStream;
   bool m_subtitleVisible;
+  bool m_dspEnabled;
 
   typedef std::vector<int> Features;
   Features m_audioCaps;

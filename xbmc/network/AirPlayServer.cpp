@@ -2,7 +2,7 @@
  * Many concepts and protocol specification in this code are taken
  * from Airplayer. https://github.com/PascalW/Airplayer
  *
- *      http://xbmc.org
+ *      http://kodi.tv
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -15,7 +15,7 @@
  *  GNU General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
+ *  along with Kodi; see the file COPYING.  If not, see
  *  <http://www.gnu.org/licenses/>.
  *
  */
@@ -36,11 +36,12 @@
 #include "filesystem/Directory.h"
 #include "FileItem.h"
 #include "Application.h"
-#include "ApplicationMessenger.h"
+#include "messaging/ApplicationMessenger.h"
+#include "PlayListPlayer.h"
 #include "utils/md5.h"
 #include "utils/Variant.h"
 #include "settings/Settings.h"
-#include "guilib/Key.h"
+#include "input/Key.h"
 #include "URL.h"
 #include "cores/IPlayer.h"
 #include "interfaces/AnnouncementManager.h"
@@ -49,7 +50,7 @@
 #endif // HAS_ZEROCONF
 
 using namespace ANNOUNCEMENT;
-using namespace std;
+using namespace KODI::MESSAGING;
 
 #ifdef TARGET_WINDOWS
 #define close closesocket
@@ -134,11 +135,11 @@ const char *eventStrings[] = {"playing", "paused", "loading", "stopped"};
 "<key>features</key>\r\n"\
 "<integer>119</integer>\r\n"\
 "<key>model</key>\r\n"\
-"<string>Xbmc,1</string>\r\n"\
+"<string>Kodi,1</string>\r\n"\
 "<key>protovers</key>\r\n"\
 "<string>1.0</string>\r\n"\
 "<key>srcvers</key>\r\n"\
-"<string>"AIRPLAY_SERVER_VERSION_STR"</string>\r\n"\
+"<string>" AIRPLAY_SERVER_VERSION_STR "</string>\r\n"\
 "</dict>\r\n"\
 "</plist>\r\n"
 
@@ -273,7 +274,7 @@ void CAirPlayServer::AnnounceToClients(int state)
   CSingleLock lock (m_connectionLock);
   
   std::vector<CTCPClient>::iterator it;
-  for (it = m_connections.begin(); it != m_connections.end(); it++)
+  for (it = m_connections.begin(); it != m_connections.end(); ++it)
   {
     std::string reverseHeader;
     std::string reverseBody;
@@ -283,7 +284,7 @@ void CAirPlayServer::AnnounceToClients(int state)
   
     // Send event status per reverse http socket (play, loading, paused)
     // if we have a reverse header and a reverse socket
-    if (reverseHeader.size() > 0 && m_reverseSockets.find(it->m_sessionId) != m_reverseSockets.end())
+    if (!reverseHeader.empty() && m_reverseSockets.find(it->m_sessionId) != m_reverseSockets.end())
     {
       //search the reverse socket to this sessionid
       response = StringUtils::Format("POST /event HTTP/1.1\r\n");
@@ -292,7 +293,7 @@ void CAirPlayServer::AnnounceToClients(int state)
     }
     response += "\r\n";
   
-    if (reverseBody.size() > 0)
+    if (!reverseBody.empty())
     {
       response += reverseBody;
     }
@@ -313,12 +314,12 @@ CAirPlayServer::CAirPlayServer(int port, bool nonlocal) : CThread("AirPlayServer
   m_ServerSocket = INVALID_SOCKET;
   m_usePassword = false;
   m_origVolume = -1;
-  CAnnouncementManager::Get().AddAnnouncer(this);
+  CAnnouncementManager::GetInstance().AddAnnouncer(this);
 }
 
 CAirPlayServer::~CAirPlayServer()
 {
-  CAnnouncementManager::Get().RemoveAnnouncer(this);
+  CAnnouncementManager::GetInstance().RemoveAnnouncer(this);
 }
 
 void handleZeroconfAnnouncement()
@@ -465,6 +466,7 @@ CAirPlayServer::CTCPClient::CTCPClient()
 }
 
 CAirPlayServer::CTCPClient::CTCPClient(const CTCPClient& client)
+: m_lastEvent(EVENT_NONE)
 {
   Copy(client);
   m_httpParser = new HttpParser();
@@ -533,14 +535,14 @@ void CAirPlayServer::CTCPClient::PushBuffer(CAirPlayServer *host, const char *bu
     char *date = asctime(gmtime(&ltime)); //Fri, 17 Dec 2010 11:18:01 GMT;
     date[strlen(date) - 1] = '\0'; // remove \n
     response = StringUtils::Format("HTTP/1.1 %d %s\nDate: %s\r\n", status, statusMsg.c_str(), date);
-    if (responseHeader.size() > 0)
+    if (!responseHeader.empty())
     {
       response += responseHeader;
     }
 
     response = StringUtils::Format("%sContent-Length: %ld\r\n\r\n", response.c_str(), responseBody.size());
 
-    if (responseBody.size() > 0)
+    if (!responseBody.empty())
     {
       response += responseBody;
     }
@@ -641,12 +643,12 @@ std::string calcResponse(const std::string& username,
 //from a string field1="value1", field2="value2" it parses the value to a field
 std::string getFieldFromString(const std::string &str, const char* field)
 {
-  vector<string> tmpAr1 = StringUtils::Split(str, ",");
-  for(vector<string>::const_iterator i = tmpAr1.begin(); i != tmpAr1.end(); ++i)
+  std::vector<std::string> tmpAr1 = StringUtils::Split(str, ",");
+  for(std::vector<std::string>::const_iterator i = tmpAr1.begin(); i != tmpAr1.end(); ++i)
   {
     if (i->find(field) != std::string::npos)
     {
-      vector<string> tmpAr2 = StringUtils::Split(*i, "=");
+      std::vector<std::string> tmpAr2 = StringUtils::Split(*i, "=");
       if (tmpAr2.size() == 2)
       {
         StringUtils::Replace(tmpAr2[1], "\"", "");//remove quotes
@@ -734,7 +736,7 @@ void CAirPlayServer::restoreVolume()
 {
   CSingleLock lock(ServerInstanceLock);
 
-  if (ServerInstance && ServerInstance->m_origVolume != -1 && CSettings::Get().GetBool("services.airplayvolumecontrol"))
+  if (ServerInstance && ServerInstance->m_origVolume != -1 && CSettings::GetInstance().GetBool(CSettings::SETTING_SERVICES_AIRPLAYVOLUMECONTROL))
   {
     g_application.SetVolume((float)ServerInstance->m_origVolume);
     ServerInstance->m_origVolume = -1;
@@ -821,14 +823,14 @@ int CAirPlayServer::CTCPClient::ProcessRequest( std::string& responseHeader,
       {
         if (g_application.m_pPlayer->IsPlaying() && !g_application.m_pPlayer->IsPaused())
         {
-          CApplicationMessenger::Get().MediaPause();
+          CApplicationMessenger::GetInstance().SendMsg(TMSG_MEDIA_PAUSE);
         }
       }
       else
       {
         if (g_application.m_pPlayer->IsPausedPlayback())
         {
-          CApplicationMessenger::Get().MediaPause();
+          CApplicationMessenger::GetInstance().SendMsg(TMSG_MEDIA_PAUSE);
         }
       }
   }
@@ -852,11 +854,11 @@ int CAirPlayServer::CTCPClient::ProcessRequest( std::string& responseHeader,
       {
         float oldVolume = g_application.GetVolume();
         volume *= 100;
-        if(oldVolume != volume && CSettings::Get().GetBool("services.airplayvolumecontrol"))
+        if(oldVolume != volume && CSettings::GetInstance().GetBool(CSettings::SETTING_SERVICES_AIRPLAYVOLUMECONTROL))
         {
           backupVolume();
           g_application.SetVolume(volume);          
-          CApplicationMessenger::Get().ShowVolumeBar(oldVolume < volume);
+          CApplicationMessenger::GetInstance().PostMsg(TMSG_VOLUME_SHOW, oldVolume < volume ? ACTION_VOLUME_UP : ACTION_VOLUME_DOWN);
         }
       }
   }
@@ -877,7 +879,7 @@ int CAirPlayServer::CTCPClient::ProcessRequest( std::string& responseHeader,
     {
       status = AIRPLAY_STATUS_NEED_AUTH;
     }
-    else
+    else if (contentType == "application/x-apple-binary-plist")
     {
       CAirPlayServer::m_isPlaying++;    
       
@@ -888,11 +890,7 @@ int CAirPlayServer::CTCPClient::ProcessRequest( std::string& responseHeader,
         const char* bodyChr = m_httpParser->getBody();
 
         plist_t dict = NULL;
-        if (contentType == "application/x-apple-binary-plist")
-          m_pLibPlist->plist_from_bin(bodyChr, m_httpParser->getContentLength(), &dict);
-        else
-          m_pLibPlist->plist_from_xml(bodyChr, m_httpParser->getContentLength(), &dict);
-
+        m_pLibPlist->plist_from_bin(bodyChr, m_httpParser->getContentLength(), &dict);
 
         if (m_pLibPlist->plist_dict_get_size(dict))
         {
@@ -951,6 +949,28 @@ int CAirPlayServer::CTCPClient::ProcessRequest( std::string& responseHeader,
         m_pLibPlist->Unload();
       }
     }
+    else
+    {
+      CAirPlayServer::m_isPlaying++;        
+      // Get URL to play
+      std::string contentLocation = "Content-Location: ";
+      size_t start = body.find(contentLocation);
+      if (start == std::string::npos)
+        return AIRPLAY_STATUS_NOT_IMPLEMENTED;
+      start += contentLocation.size();
+      int end = body.find('\n', start);
+      location = body.substr(start, end - start);
+
+      std::string startPosition = "Start-Position: ";
+      start = body.find(startPosition);
+      if (start != std::string::npos)
+      {
+        start += startPosition.size();
+        int end = body.find('\n', start);
+        std::string positionStr = body.substr(start, end - start);
+        position = (float)atof(positionStr.c_str());
+      }
+    }
 
     if (status != AIRPLAY_STATUS_NEED_AUTH)
     {
@@ -960,15 +980,15 @@ int CAirPlayServer::CTCPClient::ProcessRequest( std::string& responseHeader,
       CFileItem fileToPlay(location, false);
       fileToPlay.SetProperty("StartPercent", position*100.0f);
       ServerInstance->AnnounceToClients(EVENT_LOADING);
-      // froce to internal dvdplayer cause it is the only
-      // one who will work well with airplay
-      g_application.m_eForcedNextPlayer = EPC_DVDPLAYER;
-      CApplicationMessenger::Get().MediaPlay(fileToPlay);
+
+      CFileItemList *l = new CFileItemList; //don't delete,
+      l->Add(std::make_shared<CFileItem>(fileToPlay));
+      CApplicationMessenger::GetInstance().PostMsg(TMSG_MEDIA_PLAY, -1, -1, static_cast<void*>(l));
 
       // allow starting the player paused in ios8 mode (needed by camera roll app)
-      if (CSettings::Get().GetBool("services.airplayios8compat") && !startPlayback)
+      if (!startPlayback)
       {
-        CApplicationMessenger::Get().MediaPause();
+        CApplicationMessenger::GetInstance().SendMsg(TMSG_MEDIA_PAUSE);
         g_application.m_pPlayer->SeekPercentage(position * 100.0f);
       }
     }
@@ -1021,12 +1041,12 @@ int CAirPlayServer::CTCPClient::ProcessRequest( std::string& responseHeader,
     {
       if (IsPlaying()) //only stop player if we started him
       {
-        CApplicationMessenger::Get().MediaStop();
+        CApplicationMessenger::GetInstance().SendMsg(TMSG_MEDIA_STOP);
         CAirPlayServer::m_isPlaying--;
       }
       else //if we are not playing and get the stop request - we just wanna stop picture streaming
       {
-        CApplicationMessenger::Get().SendAction(ACTION_PREVIOUS_MENU);
+        CApplicationMessenger::GetInstance().SendMsg(TMSG_GUI_ACTION, WINDOW_SLIDESHOW, -1, static_cast<void*>(new CAction(ACTION_STOP)));
       }
     }
     ClearPhotoAssetCache();
@@ -1097,7 +1117,7 @@ int CAirPlayServer::CTCPClient::ProcessRequest( std::string& responseHeader,
               CLog::Log(LOGWARNING, "AIRPLAY: Asset %s not found in our cache.", photoCacheId.c_str());
           }
           else
-            CApplicationMessenger::Get().PictureShow(tmpFileName);
+            CApplicationMessenger::GetInstance().PostMsg(TMSG_PICTURE_SHOW, -1, -1, nullptr, tmpFileName);
         }
         else
         {

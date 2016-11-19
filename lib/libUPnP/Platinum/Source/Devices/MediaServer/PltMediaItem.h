@@ -167,9 +167,18 @@ public:
 typedef struct {
   NPT_String date_added;
   NPT_Float rating;
-  NPT_String votes;
+  NPT_Int32 votes;
   PLT_Artworks artwork;
+  NPT_String unique_identifier;
+  NPT_List<NPT_String> countries;
+  NPT_Int32 user_rating;
 } PLT_XbmcInfo;
+
+typedef struct {
+  NPT_String name;
+  NPT_Map<NPT_String, NPT_String> attributes;
+  NPT_String value;
+} PLT_SecResource;
 
 /*----------------------------------------------------------------------
 |   PLT_MediaItemResource
@@ -191,6 +200,9 @@ public:
     NPT_UInt32       m_NbAudioChannels;
     NPT_String       m_Resolution;
     NPT_UInt32       m_ColorDepth;
+    /* to add custom data to resource, that are not standard one, or are only
+    proper for some type of devices (UPnP)*/
+    NPT_Map<NPT_String, NPT_String> m_CustomData;
 };
 
 /*----------------------------------------------------------------------
@@ -248,6 +260,9 @@ public:
 
     /* resources related */
     NPT_Array<PLT_MediaItemResource> m_Resources;
+
+    /* sec resources related */
+    NPT_Array<PLT_SecResource> m_SecResources;
 
     /* XBMC specific */
     PLT_XbmcInfo m_XbmcInfo;

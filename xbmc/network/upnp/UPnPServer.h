@@ -18,11 +18,13 @@
  *
  */
 #pragma once
+#include <utility>
 #include <Platinum/Source/Devices/MediaConnect/PltMediaConnect.h>
 
-#include "interfaces/IAnnouncer.h"
 #include "FileItem.h"
+#include "interfaces/IAnnouncer.h"
 
+class CVariant;
 class CThumbLoader;
 class PLT_MediaObject;
 class PLT_HttpRequestContext;
@@ -96,6 +98,10 @@ public:
             object->m_Resources.Add(res);
         }
     }
+
+    /* Samsungs devices get subtitles from header in response (for movie file), not from didl.
+       It's a way to store subtitle uri generated when building didl, to use later in http response*/
+    NPT_Result AddSubtitleUriForSecResponse(NPT_String movie_md5, NPT_String subtitle_uri);
 
 
 private:

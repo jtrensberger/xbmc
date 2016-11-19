@@ -20,6 +20,7 @@
 
 #include "system.h"
 #include "RarFile.h"
+#include <algorithm>
 #include <sys/stat.h>
 #include "Util.h"
 #include "utils/CharsetConverter.h"
@@ -37,13 +38,20 @@
 #include <process.h>
 #endif
 
+#ifdef TARGET_POSIX
+#include "linux/XTimeUtils.h"
+#endif
+
 using namespace XFILE;
-using namespace std;
 
 #define SEEKTIMOUT 30000
 
 #ifdef HAS_FILESYSTEM_RAR
-CRarFileExtractThread::CRarFileExtractThread() : CThread("RarFileExtract"), hRunning(true), hQuit(true)
+CRarFileExtractThread::CRarFileExtractThread()
+  : CThread("RarFileExtract")
+  , hRunning(true)
+  , hQuit(true)
+  , m_iSize(0)
 {
   m_pArc = NULL;
   m_pCmd = NULL;
@@ -130,6 +138,9 @@ CRarFile::CRarFile()
   m_bUseFile = false;
   m_bOpen = false;
   m_bSeekable = true;
+  m_iFilePosition = 0;
+  m_iFileSize = 0;
+  m_iBufferStart = 0;
 }
 
 CRarFile::~CRarFile()
@@ -295,7 +306,7 @@ ssize_t CRarFile::Read(void *lpBuf, size_t uiBufSize)
   int64_t uicBufSize = uiBufSize;
   if (m_iDataInBuffer > 0)
   {
-    int64_t iCopy = uiBufSize<m_iDataInBuffer?uiBufSize:m_iDataInBuffer;
+    int64_t iCopy = std::min(static_cast<int64_t>(uiBufSize), m_iDataInBuffer);
     memcpy(lpBuf,m_szStartOfBuffer,size_t(iCopy));
     m_szStartOfBuffer += iCopy;
     m_iDataInBuffer -= int(iCopy);
@@ -544,13 +555,13 @@ void CRarFile::InitFromUrl(const CURL& url)
   m_strPassword = url.GetUserName();
   m_strPathInRar = url.GetFileName();
 
-  vector<std::string> options;
+  std::vector<std::string> options;
   if (!url.GetOptions().empty())
     StringUtils::Tokenize(url.GetOptions().substr(1), options, "&");
 
   m_bFileOptions = 0;
 
-  for( vector<std::string>::iterator it = options.begin();it != options.end(); it++)
+  for(std::vector<std::string>::iterator it = options.begin();it != options.end(); ++it)
   {
     size_t iEqual = (*it).find('=');
     if(iEqual != std::string::npos)
@@ -645,11 +656,10 @@ bool CRarFile::OpenInArchive()
     AddEndSlash(m_pCmd->ExtrPath);
 
     // Set password for encrypted archives
-    if ((m_strPassword.size() > 0) &&
-        (m_strPassword.size() < sizeof (m_pCmd->Password)))
-    {
-      strcpy(m_pCmd->Password, m_strPassword.c_str());
-    }
+    if (m_strPassword.length() > MAXPASSWORD - 1)
+      CLog::Log(LOGWARNING,"OpenInArchive: Supplied password is too long %d", (int) m_strPassword.length());
+    strncpy(m_pCmd->Password, m_strPassword.c_str(), sizeof (m_pCmd->Password) - 1);
+    m_pCmd->Password[sizeof (m_pCmd->Password) - 1] = 0;
 
     m_pCmd->ParseDone();
 

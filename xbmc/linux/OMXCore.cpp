@@ -33,6 +33,7 @@
 
 #include "OMXClock.h"
 #include "xbmc/linux/RBP.h"
+#include <cassert>
 
 #ifdef TARGET_LINUX
 #include "XMemUtils.h"
@@ -312,9 +313,6 @@ COMXCoreComponent::COMXCoreComponent()
 
   m_exit = false;
 
-  m_omx_input_use_buffers  = false;
-  m_omx_output_use_buffers = false;
-
   m_omx_events.clear();
   m_ignore_error = OMX_ErrorNone;
 
@@ -419,12 +417,10 @@ void COMXCoreComponent::FlushAll()
 
 void COMXCoreComponent::FlushInput()
 {
-  if(!m_handle)
+  if(!m_handle || m_resource_error)
     return;
 
-  OMX_ERRORTYPE omx_err = OMX_ErrorNone;
-
-  omx_err = OMX_SendCommand(m_handle, OMX_CommandFlush, m_input_port, NULL);
+  OMX_ERRORTYPE omx_err = OMX_SendCommand(m_handle, OMX_CommandFlush, m_input_port, NULL);
 
   if(omx_err != OMX_ErrorNone)
   {
@@ -436,12 +432,10 @@ void COMXCoreComponent::FlushInput()
 
 void COMXCoreComponent::FlushOutput()
 {
-  if(!m_handle)
+  if(!m_handle || m_resource_error)
     return;
 
-  OMX_ERRORTYPE omx_err = OMX_ErrorNone;
-
-  omx_err = OMX_SendCommand(m_handle, OMX_CommandFlush, m_output_port, NULL);
+  OMX_ERRORTYPE omx_err = OMX_SendCommand(m_handle, OMX_CommandFlush, m_output_port, NULL);
 
   if(omx_err != OMX_ErrorNone)
   {
@@ -569,11 +563,9 @@ OMX_ERRORTYPE COMXCoreComponent::WaitForOutputDone(long timeout /*=200*/)
 }
 
 
-OMX_ERRORTYPE COMXCoreComponent::AllocInputBuffers(bool use_buffers /* = false **/)
+OMX_ERRORTYPE COMXCoreComponent::AllocInputBuffers()
 {
   OMX_ERRORTYPE omx_err = OMX_ErrorNone;
-
-  m_omx_input_use_buffers = use_buffers; 
 
   if(!m_handle)
     return OMX_ErrorUndefined;
@@ -609,25 +601,12 @@ OMX_ERRORTYPE COMXCoreComponent::AllocInputBuffers(bool use_buffers /* = false *
   for (size_t i = 0; i < portFormat.nBufferCountActual; i++)
   {
     OMX_BUFFERHEADERTYPE *buffer = NULL;
-    OMX_U8* data = NULL;
 
-    if(m_omx_input_use_buffers)
-    {
-      data = (OMX_U8*)_aligned_malloc(portFormat.nBufferSize, m_input_alignment);
-      omx_err = OMX_UseBuffer(m_handle, &buffer, m_input_port, NULL, portFormat.nBufferSize, data);
-    }
-    else
-    {
-      omx_err = OMX_AllocateBuffer(m_handle, &buffer, m_input_port, NULL, portFormat.nBufferSize);
-    }
+    omx_err = OMX_AllocateBuffer(m_handle, &buffer, m_input_port, NULL, portFormat.nBufferSize);
     if(omx_err != OMX_ErrorNone)
     {
       CLog::Log(LOGERROR, "COMXCoreComponent::AllocInputBuffers component(%s) - OMX_UseBuffer failed with omx_err(0x%x)\n",
         m_componentName.c_str(), omx_err);
-
-      if(m_omx_input_use_buffers && data)
-        _aligned_free(data);
-
       return omx_err;
     }
     buffer->nInputPortIndex = m_input_port;
@@ -650,14 +629,12 @@ OMX_ERRORTYPE COMXCoreComponent::AllocInputBuffers(bool use_buffers /* = false *
   return omx_err;
 }
 
-OMX_ERRORTYPE COMXCoreComponent::AllocOutputBuffers(bool use_buffers /* = false */)
+OMX_ERRORTYPE COMXCoreComponent::AllocOutputBuffers()
 {
   OMX_ERRORTYPE omx_err = OMX_ErrorNone;
 
   if(!m_handle)
     return OMX_ErrorUndefined;
-
-  m_omx_output_use_buffers = use_buffers; 
 
   OMX_PARAM_PORTDEFINITIONTYPE portFormat;
   OMX_INIT_STRUCTURE(portFormat);
@@ -690,25 +667,12 @@ OMX_ERRORTYPE COMXCoreComponent::AllocOutputBuffers(bool use_buffers /* = false 
   for (size_t i = 0; i < portFormat.nBufferCountActual; i++)
   {
     OMX_BUFFERHEADERTYPE *buffer = NULL;
-    OMX_U8* data = NULL;
 
-    if(m_omx_output_use_buffers)
-    {
-      data = (OMX_U8*)_aligned_malloc(portFormat.nBufferSize, m_output_alignment);
-      omx_err = OMX_UseBuffer(m_handle, &buffer, m_output_port, NULL, portFormat.nBufferSize, data);
-    }
-    else
-    {
-      omx_err = OMX_AllocateBuffer(m_handle, &buffer, m_output_port, NULL, portFormat.nBufferSize);
-    }
+    omx_err = OMX_AllocateBuffer(m_handle, &buffer, m_output_port, NULL, portFormat.nBufferSize);
     if(omx_err != OMX_ErrorNone)
     {
       CLog::Log(LOGERROR, "COMXCoreComponent::AllocOutputBuffers component(%s) - OMX_UseBuffer failed with omx_err(0x%x)\n",
         m_componentName.c_str(), omx_err);
-
-      if(m_omx_output_use_buffers && data)
-       _aligned_free(data);
-
       return omx_err;
     }
     buffer->nOutputPortIndex = m_output_port;
@@ -750,13 +714,7 @@ OMX_ERRORTYPE COMXCoreComponent::FreeInputBuffers()
 
   for (size_t i = 0; i < m_omx_input_buffers.size(); i++)
   {
-    uint8_t *buf = m_omx_input_buffers[i]->pBuffer;
-
     omx_err = OMX_FreeBuffer(m_handle, m_input_port, m_omx_input_buffers[i]);
-
-    if(m_omx_input_use_buffers && buf)
-      _aligned_free(buf);
-
     if(omx_err != OMX_ErrorNone)
     {
       CLog::Log(LOGERROR, "COMXCoreComponent::FreeInputBuffers error deallocate omx input buffer on component %s omx_err(0x%08x)\n", m_componentName.c_str(), omx_err);
@@ -808,13 +766,7 @@ OMX_ERRORTYPE COMXCoreComponent::FreeOutputBuffers()
 
   for (size_t i = 0; i < m_omx_output_buffers.size(); i++)
   {
-    uint8_t *buf = m_omx_output_buffers[i]->pBuffer;
-
     omx_err = OMX_FreeBuffer(m_handle, m_output_port, m_omx_output_buffers[i]);
-
-    if(m_omx_output_use_buffers && buf)
-      _aligned_free(buf);
-
     if(omx_err != OMX_ErrorNone)
     {
       CLog::Log(LOGERROR, "COMXCoreComponent::FreeOutputBuffers error deallocate omx output buffer on component %s omx_err(0x%08x)\n", m_componentName.c_str(), omx_err);
@@ -952,7 +904,7 @@ OMX_ERRORTYPE COMXCoreComponent::WaitForEvent(OMX_EVENTTYPE eventType, long time
   add_timespecs(endtime, timeout);
   while(true) 
   {
-    for (std::vector<omx_event>::iterator it = m_omx_events.begin(); it != m_omx_events.end(); it++) 
+    for (std::vector<omx_event>::iterator it = m_omx_events.begin(); it != m_omx_events.end(); ++it)
     {
       omx_event event = *it;
 
@@ -1021,7 +973,7 @@ OMX_ERRORTYPE COMXCoreComponent::WaitForCommand(OMX_U32 command, OMX_U32 nData2,
   add_timespecs(endtime, timeout);
   while(true) 
   {
-    for (std::vector<omx_event>::iterator it = m_omx_events.begin(); it != m_omx_events.end(); it++) 
+    for (std::vector<omx_event>::iterator it = m_omx_events.begin(); it != m_omx_events.end(); ++it)
     {
       omx_event event = *it;
 
@@ -1209,13 +1161,11 @@ OMX_ERRORTYPE COMXCoreComponent::EnablePort(unsigned int port,  bool wait)
   if(!m_handle)
     return OMX_ErrorUndefined;
 
-  OMX_ERRORTYPE omx_err = OMX_ErrorNone;
-
   OMX_PARAM_PORTDEFINITIONTYPE portFormat;
   OMX_INIT_STRUCTURE(portFormat);
   portFormat.nPortIndex = port;
 
-  omx_err = OMX_GetParameter(m_handle, OMX_IndexParamPortDefinition, &portFormat);
+  OMX_ERRORTYPE omx_err = OMX_GetParameter(m_handle, OMX_IndexParamPortDefinition, &portFormat);
   if(omx_err != OMX_ErrorNone)
   {
     CLog::Log(LOGERROR, "COMXCoreComponent::EnablePort - Error get port %d status on component %s omx_err(0x%08x)", 
@@ -1245,13 +1195,11 @@ OMX_ERRORTYPE COMXCoreComponent::DisablePort(unsigned int port, bool wait)
   if(!m_handle)
     return OMX_ErrorUndefined;
 
-  OMX_ERRORTYPE omx_err = OMX_ErrorNone;
-
   OMX_PARAM_PORTDEFINITIONTYPE portFormat;
   OMX_INIT_STRUCTURE(portFormat);
   portFormat.nPortIndex = port;
 
-  omx_err = OMX_GetParameter(m_handle, OMX_IndexParamPortDefinition, &portFormat);
+  OMX_ERRORTYPE omx_err = OMX_GetParameter(m_handle, OMX_IndexParamPortDefinition, &portFormat);
   if(omx_err != OMX_ErrorNone)
   {
     CLog::Log(LOGERROR, "COMXCoreComponent::DisablePort - Error get port %d status on component %s omx_err(0x%08x)", 
@@ -1282,8 +1230,6 @@ OMX_ERRORTYPE COMXCoreComponent::UseEGLImage(OMX_BUFFERHEADERTYPE** ppBufferHdr,
 
   if(!m_handle)
     return OMX_ErrorUndefined;
-
-  m_omx_output_use_buffers = false;
 
   OMX_PARAM_PORTDEFINITIONTYPE portFormat;
   OMX_INIT_STRUCTURE(portFormat);
@@ -1377,9 +1323,6 @@ bool COMXCoreComponent::Initialize( const std::string &component_name, OMX_INDEX
   m_eos                 = false;
 
   m_exit = false;
-
-  m_omx_input_use_buffers  = false;
-  m_omx_output_use_buffers = false;
 
   m_omx_events.clear();
   m_ignore_error = OMX_ErrorNone;

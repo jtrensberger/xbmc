@@ -18,6 +18,7 @@
  *
  */
 
+#include <stdlib.h>
 #include "DarwinStorageProvider.h"
 #include "utils/RegExp.h"
 #include "Util.h"
@@ -26,8 +27,11 @@
 #include <sys/mount.h>
 #if defined(TARGET_DARWIN_OSX)
 #include <DiskArbitration/DiskArbitration.h>
+#include <IOKit/storage/IOCDMedia.h>
+#include <IOKit/storage/IODVDMedia.h>
+#include "platform/darwin/DarwinUtils.h"  
 #endif
-#include "osx/CocoaInterface.h"
+#include "platform/darwin/osx/CocoaInterface.h"
 
 bool CDarwinStorageProvider::m_event = false;
 
@@ -41,10 +45,22 @@ void CDarwinStorageProvider::GetLocalDrives(VECSOURCES &localDrives)
   CMediaSource share;
 
   // User home folder
-  share.strPath = getenv("HOME");
+  #ifdef TARGET_DARWIN_IOS
+    share.strPath = "special://envhome/";
+  #else
+    share.strPath = getenv("HOME");
+  #endif
   share.strName = g_localizeStrings.Get(21440);
   share.m_ignore = true;
   localDrives.push_back(share);
+  
+#if defined(TARGET_DARWIN_IOS)
+  // iOS Inbox folder
+  share.strPath = "special://envhome/Documents/Inbox";
+  share.strName = "Inbox";
+  share.m_ignore = true;
+  localDrives.push_back(share);
+#endif
 
 #if defined(TARGET_DARWIN_OSX)
   // User desktop folder
@@ -59,6 +75,9 @@ void CDarwinStorageProvider::GetLocalDrives(VECSOURCES &localDrives)
   share.strName = "Volumes";
   share.m_ignore = true;
   localDrives.push_back(share);
+  
+  if (CDarwinUtils::IsLion())  
+   return; //temp workaround for crash in Cocoa_GetVolumeNameFromMountPoint on 10.7.x  
 
   // This will pick up all local non-removable disks including the Root Disk.
   DASessionRef session = DASessionCreate(kCFAllocatorDefault);
@@ -103,6 +122,10 @@ void CDarwinStorageProvider::GetLocalDrives(VECSOURCES &localDrives)
 void CDarwinStorageProvider::GetRemovableDrives(VECSOURCES &removableDrives)
 {
 #if defined(TARGET_DARWIN_OSX)
+
+  if (CDarwinUtils::IsLion())  
+    return; //temp workaround for crash in Cocoa_GetVolumeNameFromMountPoint on 10.7.x  
+
   DASessionRef session = DASessionCreate(kCFAllocatorDefault);
   if (session)
   {
@@ -129,6 +152,17 @@ void CDarwinStorageProvider::GetRemovableDrives(VECSOURCES &removableDrives)
             share.strPath = mountpoint;
             Cocoa_GetVolumeNameFromMountPoint(mountpoint.c_str(), share.strName);
             share.m_ignore = true;
+            // detect if its a cd or dvd
+            // needs to be ejectable
+            if (kCFBooleanTrue == CFDictionaryGetValue(details, kDADiskDescriptionMediaEjectableKey))
+            {
+              CFStringRef mediaKind = (CFStringRef)CFDictionaryGetValue(details, kDADiskDescriptionMediaKindKey);
+              // and either cd or dvd kind of media in it
+              if (mediaKind != NULL &&
+                  (CFStringCompare(mediaKind, CFSTR(kIOCDMediaClass), 0) == kCFCompareEqualTo ||
+                  CFStringCompare(mediaKind, CFSTR(kIODVDMediaClass), 0) == kCFCompareEqualTo))
+                share.m_iDriveType = CMediaSource::SOURCE_TYPE_DVD;
+            }
             removableDrives.push_back(share);
           }
           CFRelease(details);

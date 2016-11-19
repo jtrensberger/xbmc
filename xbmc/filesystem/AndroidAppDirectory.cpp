@@ -22,7 +22,7 @@
 
 #if defined(TARGET_ANDROID)
 #include "AndroidAppDirectory.h"
-#include "xbmc/android/activity/XBMCApp.h"
+#include "platform/android/activity/XBMCApp.h"
 #include "FileItem.h"
 #include "File.h"
 #include "utils/URIUtils.h"
@@ -30,9 +30,9 @@
 #include "utils/log.h"
 #include "utils/StringUtils.h"
 #include "URL.h"
+#include "CompileInfo.h"
 
 using namespace XFILE;
-using namespace std;
 
 CAndroidAppDirectory::CAndroidAppDirectory(void)
 {
@@ -47,9 +47,13 @@ bool CAndroidAppDirectory::GetDirectory(const CURL& url, CFileItemList &items)
   std::string dirname = url.GetFileName();
   URIUtils::RemoveSlashAtEnd(dirname);
   CLog::Log(LOGDEBUG, "CAndroidAppDirectory::GetDirectory: %s",dirname.c_str()); 
+  std::string appName = CCompileInfo::GetAppName();
+  StringUtils::ToLower(appName);
+  std::string className = "org.xbmc." + appName;
+
   if (dirname == "apps")
   {
-    vector<androidPackage> applications = CXBMCApp::GetApplications();
+    std::vector<androidPackage> applications = CXBMCApp::GetApplications();
     if (applications.empty())
     {
       CLog::Log(LOGERROR, "CAndroidAppDirectory::GetDirectory Application lookup listing failed");
@@ -57,7 +61,7 @@ bool CAndroidAppDirectory::GetDirectory(const CURL& url, CFileItemList &items)
     }
     for(std::vector<androidPackage>::iterator i = applications.begin(); i != applications.end(); ++i)
     {
-      if ((*i).packageName == "org.xbmc.xbmc")
+      if ((*i).packageName == className.c_str())
         continue;
       CFileItemPtr pItem(new CFileItem((*i).packageName));
       pItem->m_bIsFolder = false;
@@ -65,6 +69,7 @@ bool CAndroidAppDirectory::GetDirectory(const CURL& url, CFileItemList &items)
       pItem->SetPath(path);
       pItem->SetLabel((*i).packageLabel);
       pItem->SetArt("thumb", path+".png");
+      pItem->m_dwSize = -1;  // No size
       items.Add(pItem);
     }
     return true;

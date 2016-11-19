@@ -21,7 +21,6 @@
 #include "cores/AudioEngine/Interfaces/AESound.h"
 
 #include "cores/AudioEngine/AEFactory.h"
-#include "cores/AudioEngine/Utils/AEAudioFormat.h"
 #include "ActiveAE.h"
 #include "ActiveAESound.h"
 #include "utils/log.h"
@@ -39,11 +38,15 @@ using namespace XFILE;
 CActiveAESound::CActiveAESound(const std::string &filename) :
   IAESound         (filename),
   m_filename       (filename),
-  m_volume         (1.0f    )
+  m_volume         (1.0f    ),
+  m_channel        (AE_CH_NULL)
 {
   m_orig_sound = NULL;
   m_dst_sound = NULL;
   m_pFile = NULL;
+  m_isSeekPossible = false;
+  m_fileSize = 0;
+  m_isConverted = false;
 }
 
 CActiveAESound::~CActiveAESound()
@@ -65,7 +68,7 @@ void CActiveAESound::Stop()
 
 bool CActiveAESound::IsPlaying()
 {
-  // TODO
+  //! @todo implement
   return false;
 }
 
@@ -132,7 +135,7 @@ bool CActiveAESound::Prepare()
     m_pFile = NULL;
     return false;
   }
-  m_isSeekPosible = m_pFile->IoControl(IOCTRL_SEEK_POSSIBLE, NULL) != 0;
+  m_isSeekPossible = m_pFile->IoControl(IOCTRL_SEEK_POSSIBLE, NULL) != 0;
   m_fileSize = m_pFile->GetLength();
   return true;
 }

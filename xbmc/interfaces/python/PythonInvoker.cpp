@@ -29,7 +29,7 @@
 #include "system.h"
 #include "PythonInvoker.h"
 #include "Application.h"
-#include "ApplicationMessenger.h"
+#include "messaging/ApplicationMessenger.h"
 #include "addons/AddonManager.h"
 #include "dialogs/GUIDialogKaiToast.h"
 #include "filesystem/File.h"
@@ -49,8 +49,12 @@
 #include "utils/log.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
+#ifdef TARGET_POSIX
+#include "linux/XTimeUtils.h"
+#endif
 
 #ifdef TARGET_WINDOWS
+#pragma comment(lib, "python27.lib")
 extern "C" FILE *fopen_utf8(const char *_Filename, const char *_Mode);
 #else
 #define fopen_utf8 fopen
@@ -65,8 +69,8 @@ extern "C" FILE *fopen_utf8(const char *_Filename, const char *_Mode);
 // Time before ill-behaved scripts are terminated
 #define PYTHON_SCRIPT_TIMEOUT 5000 // ms
 
-using namespace std;
 using namespace XFILE;
+using namespace KODI::MESSAGING;
 
 extern "C"
 {
@@ -113,7 +117,7 @@ CPythonInvoker::~CPythonInvoker()
     CLog::Log(LOGDEBUG, "CPythonInvoker(%d): waiting for python thread \"%s\" to stop",
       GetId(), (!m_sourceFile.empty() ? m_sourceFile.c_str() : "unknown script"));
   Stop(true);
-  g_pythonParser.PulseGlobalEvent();
+  pulseGlobalEvent();
 
   if (m_argv != NULL)
   {
@@ -121,7 +125,7 @@ CPythonInvoker::~CPythonInvoker()
       delete [] m_argv[i];
     delete [] m_argv;
   }
-  g_pythonParser.FinalizeScript();
+  onExecutionFinalized();
 }
 
 bool CPythonInvoker::Execute(const std::string &script, const std::vector<std::string> &arguments /* = std::vector<std::string>() */)
@@ -135,7 +139,7 @@ bool CPythonInvoker::Execute(const std::string &script, const std::vector<std::s
     return false;
   }
 
-  if (!g_pythonParser.InitializeEngine())
+  if (!onExecutionInitialized())
     return false;
 
   return ILanguageInvoker::Execute(script, arguments);
@@ -156,7 +160,6 @@ bool CPythonInvoker::execute(const std::string &script, const std::vector<std::s
   }
 
   CLog::Log(LOGDEBUG, "CPythonInvoker(%d, %s): start processing", GetId(), m_sourceFile.c_str());
-  int m_Py_file_input = Py_file_input;
 
   // get the global lock
   PyEval_AcquireLock();
@@ -195,6 +198,17 @@ bool CPythonInvoker::execute(const std::string &script, const std::vector<std::s
     getAddonModuleDeps(m_addon, paths);
     for (std::set<std::string>::const_iterator it = paths.begin(); it != paths.end(); ++it)
       addPath(*it);
+  }
+  else
+  { // for backwards compatibility.
+    // we don't have any addon so just add all addon modules installed
+    CLog::Log(LOGWARNING, "CPythonInvoker(%d): Script invoked without an addon. Adding all addon "
+        "modules installed to python path as fallback. This behaviour will be removed in future "
+        "version.", GetId());
+    ADDON::VECADDONS addons;
+    ADDON::CAddonMgr::GetInstance().GetAddons(addons, ADDON::ADDON_SCRIPT_MODULE);
+    for (unsigned int i = 0; i < addons.size(); ++i)
+      addPath(CSpecialProtocol::TranslatePath(addons[i]->LibPath()));
   }
 
   // we want to use sys.path so it includes site-packages
@@ -249,6 +263,7 @@ bool CPythonInvoker::execute(const std::string &script, const std::vector<std::s
   PyThreadState_Swap(state);
 
   bool failed = false;
+  std::string exceptionType, exceptionValue, exceptionTraceback;
   if (!stopping)
   {
     try
@@ -278,7 +293,7 @@ bool CPythonInvoker::execute(const std::string &script, const std::vector<std::s
         Py_DECREF(f);
         setState(InvokerStateRunning);
         XBMCAddon::Python::PyContext pycontext; // this is a guard class that marks this callstack as being in a python context
-        PyRun_FileExFlags(fp, nativeFilename.c_str(), m_Py_file_input, moduleDict, moduleDict, 1, NULL);
+        executeScript(fp, nativeFilename, module, moduleDict);
       }
       else
         CLog::Log(LOGERROR, "CPythonInvoker(%d, %s): %s not found!", GetId(), m_sourceFile.c_str(), m_sourceFile.c_str());
@@ -319,11 +334,17 @@ bool CPythonInvoker::execute(const std::string &script, const std::vector<std::s
     // if it failed with an exception we already logged the details
     if (!failed)
     {
-      PythonBindings::PythonToCppException e;
-      e.LogThrowMessage();
+      PythonBindings::PythonToCppException *e = NULL;
+      if (PythonBindings::PythonToCppException::ParsePythonException(exceptionType, exceptionValue, exceptionTraceback))
+        e = new PythonBindings::PythonToCppException(exceptionType, exceptionValue, exceptionTraceback);
+      else
+        e = new PythonBindings::PythonToCppException();
+
+      e->LogThrowMessage();
+      delete e;
     }
 
-    onError();
+    onError(exceptionType, exceptionValue, exceptionTraceback);
   }
 
   // no need to do anything else because the script has already stopped
@@ -408,6 +429,15 @@ bool CPythonInvoker::execute(const std::string &script, const std::vector<std::s
   return true;
 }
 
+void CPythonInvoker::executeScript(void *fp, const std::string &script, void *module, void *moduleDict)
+{
+  if (fp == NULL || script.empty() || module == NULL || moduleDict == NULL)
+    return;
+
+  int m_Py_file_input = Py_file_input;
+  PyRun_FileExFlags(static_cast<FILE*>(fp), script.c_str(), m_Py_file_input, static_cast<PyObject*>(moduleDict), static_cast<PyObject*>(moduleDict), 1, NULL);
+}
+
 bool CPythonInvoker::stop(bool abort)
 {
   CSingleLock lock(m_critical);
@@ -425,7 +455,7 @@ bool CPythonInvoker::stop(bool abort)
 
     //tell xbmc.Monitor to call onAbortRequested()
     if (m_addon != NULL)
-      g_pythonParser.OnAbortRequested(m_addon->ID());
+      onAbortRequested();
 
     PyObject *m;
     m = PyImport_AddModule((char*)"xbmc");
@@ -450,8 +480,7 @@ bool CPythonInvoker::stop(bool abort)
       // on TMSG_GUI_PYTHON_DIALOG messages, so pump the message loop.
       if (g_application.IsCurrentThread())
       {
-        CSingleExit ex(g_graphicsContext);
-        CApplicationMessenger::Get().ProcessMessages();
+        CApplicationMessenger::GetInstance().ProcessMessages();
       }
     }
 
@@ -480,7 +509,7 @@ bool CPythonInvoker::stop(bool abort)
       }
 
       // If a dialog entered its doModal(), we need to wake it to see the exception
-      g_pythonParser.PulseGlobalEvent();
+      pulseGlobalEvent();
     }
 
     if (old != NULL)
@@ -554,7 +583,7 @@ void CPythonInvoker::onDeinitialization()
   XBMC_TRACE;
 }
 
-void CPythonInvoker::onError()
+void CPythonInvoker::onError(const std::string &exceptionType /* = "" */, const std::string &exceptionValue /* = "" */, const std::string &exceptionTraceback /* = "" */)
 {
   CPyThreadState releaseGil;
   CSingleLock gc(g_graphicsContext);
@@ -562,24 +591,14 @@ void CPythonInvoker::onError()
   CGUIDialogKaiToast *pDlgToast = (CGUIDialogKaiToast*)g_windowManager.GetWindow(WINDOW_DIALOG_KAI_TOAST);
   if (pDlgToast != NULL)
   {
-    std::string desc;
-    std::string script;
-    if (m_addon.get() != NULL)
-      script = m_addon->Name();
+    std::string message;
+    if (m_addon && !m_addon->Name().empty())
+      message = StringUtils::Format(g_localizeStrings.Get(2102).c_str(), m_addon->Name().c_str());
+    else if (m_sourceFile == CSpecialProtocol::TranslatePath("special://profile/autoexec.py"))
+      message = StringUtils::Format(g_localizeStrings.Get(2102).c_str(), "autoexec.py");
     else
-    {
-      std::string path;
-      URIUtils::Split(m_sourceFile.c_str(), path, script);
-      if (script == "default.py")
-      {
-        std::string path2;
-        URIUtils::RemoveSlashAtEnd(path);
-        URIUtils::Split(path, path2, script);
-      }
-    }
-
-    desc = StringUtils::Format(g_localizeStrings.Get(2100).c_str(), script.c_str());
-    pDlgToast->QueueNotification(CGUIDialogKaiToast::Error, g_localizeStrings.Get(257), desc);
+       message = g_localizeStrings.Get(2103);
+    pDlgToast->QueueNotification(CGUIDialogKaiToast::Error, message, g_localizeStrings.Get(2104));
   }
 }
 
@@ -613,7 +632,7 @@ void CPythonInvoker::getAddonModuleDeps(const ADDON::AddonPtr& addon, std::set<s
   {
     //Check if dependency is a module addon
     ADDON::AddonPtr dependency;
-    if (ADDON::CAddonMgr::Get().GetAddon(it->first, dependency, ADDON::ADDON_SCRIPT_MODULE))
+    if (ADDON::CAddonMgr::GetInstance().GetAddon(it->first, dependency, ADDON::ADDON_SCRIPT_MODULE))
     {
       std::string path = CSpecialProtocol::TranslatePath(dependency->LibPath());
       if (paths.find(path) == paths.end())

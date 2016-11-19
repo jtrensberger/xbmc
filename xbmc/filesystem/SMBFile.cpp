@@ -27,12 +27,14 @@
 #include "PasswordManager.h"
 #include "SMBDirectory.h"
 #include <libsmbclient.h>
+#include "filesystem/SpecialProtocol.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/Settings.h"
 #include "threads/SingleLock.h"
 #include "utils/log.h"
 #include "Util.h"
 #include "utils/StringUtils.h"
+#include "utils/URIUtils.h"
 #include "utils/TimeUtils.h"
 #include "commons/Exception.h"
 
@@ -49,17 +51,24 @@ void xb_smbc_auth(const char *srv, const char *shr, char *wg, int wglen,
   return ;
 }
 
+// WTF is this ?, we get the original server cache only
+// to set the server cache to this function which call the
+// original one anyway. Seems quite silly.
 smbc_get_cached_srv_fn orig_cache;
-
 SMBCSRV* xb_smbc_cache(SMBCCTX* c, const char* server, const char* share, const char* workgroup, const char* username)
 {
   return orig_cache(c, server, share, workgroup, username);
 }
 
+bool CSMB::IsFirstInit = true;
+
 CSMB::CSMB()
 {
-  m_IdleTimeout = 0;
   m_context = NULL;
+#ifdef TARGET_POSIX
+  m_OpenConnections = 0;
+  m_IdleTimeout = 0;
+#endif
 }
 
 CSMB::~CSMB()
@@ -74,16 +83,8 @@ void CSMB::Deinit()
   /* samba goes loco if deinited while it has some files opened */
   if (m_context)
   {
-    try
-    {
-      smbc_set_context(NULL);
-      smbc_free_context(m_context, 1);
-    }
-    XBMCCOMMONS_HANDLE_UNCHECKED
-    catch(...)
-    {
-      CLog::Log(LOGERROR,"exception on CSMB::Deinit. errno: %d", errno);
-    }
+    smbc_set_context(NULL);
+    smbc_free_context(m_context, 1);
     m_context = NULL;
   }
 }
@@ -97,10 +98,12 @@ void CSMB::Init()
     // http://us1.samba.org/samba/docs/man/manpages-3/libsmbclient.7.html
     // http://us1.samba.org/samba/docs/man/manpages-3/smb.conf.5.html
     char smb_conf[MAX_PATH];
-    snprintf(smb_conf, sizeof(smb_conf), "%s/.smb", getenv("HOME"));
+    std::string home = CSpecialProtocol::TranslatePath("special://home");
+    URIUtils::RemoveSlashAtEnd(home);
+    snprintf(smb_conf, sizeof(smb_conf), "%s/.smb", home.c_str());
     if (mkdir(smb_conf, 0755) == 0)
     {
-      snprintf(smb_conf, sizeof(smb_conf), "%s/.smb/smb.conf", getenv("HOME"));
+      snprintf(smb_conf, sizeof(smb_conf), "%s/.smb/smb.conf", home.c_str());
       FILE* f = fopen(smb_conf, "w");
       if (f != NULL)
       {
@@ -116,13 +119,13 @@ void CSMB::Init()
         fprintf(f, "\tlanman auth = yes\n");
 
         fprintf(f, "\tsocket options = TCP_NODELAY IPTOS_LOWDELAY SO_RCVBUF=65536 SO_SNDBUF=65536\n");      
-        fprintf(f, "\tlock directory = %s/.smb/\n", getenv("HOME"));
+        fprintf(f, "\tlock directory = %s/.smb/\n", home.c_str());
 
         // set wins server if there's one. name resolve order defaults to 'lmhosts host wins bcast'.
         // if no WINS server has been specified the wins method will be ignored.
-        if (CSettings::Get().GetString("smb.winsserver").length() > 0 && !StringUtils::EqualsNoCase(CSettings::Get().GetString("smb.winsserver"), "0.0.0.0") )
+        if (CSettings::GetInstance().GetString(CSettings::SETTING_SMB_WINSSERVER).length() > 0 && !StringUtils::EqualsNoCase(CSettings::GetInstance().GetString(CSettings::SETTING_SMB_WINSSERVER), "0.0.0.0") )
         {
-          fprintf(f, "\twins server = %s\n", CSettings::Get().GetString("smb.winsserver").c_str());
+          fprintf(f, "\twins server = %s\n", CSettings::GetInstance().GetString(CSettings::SETTING_SMB_WINSSERVER).c_str());
           fprintf(f, "\tname resolve order = bcast wins host\n");
         }
         else
@@ -133,15 +136,18 @@ void CSMB::Init()
         if (g_advancedSettings.m_sambadoscodepage.length() > 0)
           fprintf(f, "\tdos charset = %s\n", g_advancedSettings.m_sambadoscodepage.c_str());
 
-        // if no workgroup string is specified, samba will use the default value 'WORKGROUP'
-        if ( CSettings::Get().GetString("smb.workgroup").length() > 0 )
-          fprintf(f, "\tworkgroup = %s\n", CSettings::Get().GetString("smb.workgroup").c_str());
         fclose(f);
       }
     }
 
     // reads smb.conf so this MUST be after we create smb.conf
     // multiple smbc_init calls are ignored by libsmbclient.
+    // note: this is important as it initilizes the smb old
+    // interface compatibility. Samba 3.4.0 or higher has the new interface.
+    // note: we leak the following here once, not sure why yet.
+    // 48 bytes -> smb_xmalloc_array
+    // 32 bytes -> set_param_opt
+    // 16 bytes -> set_param_opt
     smbc_init(xb_smbc_auth, 0);
 
     // setup our context
@@ -154,7 +160,11 @@ void CSMB::Init()
     smbc_setOptionOneSharePerServer(m_context, false);
     smbc_setOptionBrowseMaxLmbCount(m_context, 0);
     smbc_setTimeout(m_context, g_advancedSettings.m_sambaclienttimeout * 1000);
-    smbc_setUser(m_context, strdup("guest"));
+    // we do not need to strdup these, smbc_setXXX below will make their own copies
+    if (CSettings::GetInstance().GetString(CSettings::SETTING_SMB_WORKGROUP).length() > 0)
+      smbc_setWorkgroup(m_context, (char*)CSettings::GetInstance().GetString(CSettings::SETTING_SMB_WORKGROUP).c_str());
+    std::string guest = "guest";
+    smbc_setUser(m_context, (char*)guest.c_str());
 #else
     m_context->debug = (g_advancedSettings.CanLogComponent(LOGSAMBA) ? 10 : 0);
     m_context->callbacks.auth_fn = xb_smbc_auth;
@@ -163,14 +173,28 @@ void CSMB::Init()
     m_context->options.one_share_per_server = false;
     m_context->options.browse_max_lmb_count = 0;
     m_context->timeout = g_advancedSettings.m_sambaclienttimeout * 1000;
+    // we need to strdup these, they will get free'ed on smbc_free_context
+    if (CSettings::GetInstance().GetString(CSettings::SETTING_SMB_WORKGROUP).length() > 0)
+      m_context->workgroup = strdup(CSettings::GetInstance().GetString(CSettings::SETTING_SMB_WORKGROUP).c_str());
     m_context->user = strdup("guest");
 #endif
 
     // initialize samba and do some hacking into the settings
     if (smbc_init_context(m_context))
     {
-      /* setup old interface to use this context */
-      smbc_set_context(m_context);
+      // setup context using the smb old interface compatibility
+      SMBCCTX *old_context = smbc_set_context(m_context);
+      // free previous context or we leak it, this comes from smbc_init above.
+      // there is a bug in smbclient (old interface), if we init/set a context
+      // then set(null)/free it in DeInit above, the next smbc_set_context
+      // return the already freed previous context, free again and bang, crash.
+      // so we setup a stic bool to track the first init so we can free the
+      // context associated with the initial smbc_init.
+      if (old_context && IsFirstInit)
+      {
+        smbc_free_context(old_context, 1);
+        IsFirstInit = false;
+      }
     }
     else
     {
@@ -179,29 +203,6 @@ void CSMB::Init()
     }
   }
   m_IdleTimeout = 180;
-}
-
-void CSMB::Purge()
-{
-}
-
-/*
- * For each new connection samba creates a new session
- * But this is not what we want, we just want to have one session at the time
- * This means that we have to call smbc_purge() if samba created a new session
- * Samba will create a new session when:
- * - connecting to another server
- * - connecting to another share on the same server (share, not a different folder!)
- *
- * We try to avoid lot's of purge commands because it slow samba down.
- */
-void CSMB::PurgeEx(const CURL& url)
-{
-  CSingleLock lock(*this);
-  std::string strShare = url.GetFileName().substr(0, url.GetFileName().find('/'));
-
-  m_strLastShare = strShare;
-  m_strLastHost = url.GetHostName();
 }
 
 std::string CSMB::URLEncode(const CURL &url)
@@ -221,8 +222,11 @@ std::string CSMB::URLEncode(const CURL &url)
   if(url.GetUserName().length() > 0 /* || url.GetPassWord().length() > 0 */)
   {
     flat += URLEncode(url.GetUserName());
-    flat += ":";
-    flat += URLEncode(url.GetPassWord());
+    if(url.GetPassWord().length() > 0)
+    {
+      flat += ":";
+      flat += URLEncode(url.GetPassWord());
+    }
     flat += "@";
   }
   flat += URLEncode(url.GetHostName());
@@ -231,7 +235,7 @@ std::string CSMB::URLEncode(const CURL &url)
   std::vector<std::string> parts;
   std::vector<std::string>::iterator it;
   StringUtils::Tokenize(url.GetFileName(), parts, "/");
-  for( it = parts.begin(); it != parts.end(); it++ )
+  for( it = parts.begin(); it != parts.end(); ++it )
   {
     flat += "/";
     flat += URLEncode((*it));
@@ -300,6 +304,7 @@ CSMBFile::CSMBFile()
   smb.Init();
   m_fd = -1;
   smb.AddActiveConnection();
+  m_allowRetry = true;
 }
 
 CSMBFile::~CSMBFile()
@@ -310,18 +315,16 @@ CSMBFile::~CSMBFile()
 
 int64_t CSMBFile::GetPosition()
 {
-  if (m_fd == -1) return 0;
-  smb.Init();
+  if (m_fd == -1)
+    return -1;
   CSingleLock lock(smb);
-  int64_t pos = smbc_lseek(m_fd, 0, SEEK_CUR);
-  if ( pos < 0 )
-    return 0;
-  return pos;
+  return smbc_lseek(m_fd, 0, SEEK_CUR);
 }
 
 int64_t CSMBFile::GetLength()
 {
-  if (m_fd == -1) return 0;
+  if (m_fd == -1)
+    return -1;
   return m_fileSize;
 }
 
@@ -333,7 +336,7 @@ bool CSMBFile::Open(const CURL& url)
   // if a file matches the if below return false, it can't exist on a samba share.
   if (!IsValidFile(url.GetFileName()))
   {
-      CLog::Log(LOGNOTICE,"SMBFile->Open: Bad URL : '%s'",url.GetFileName().c_str());
+      CLog::Log(LOGNOTICE,"SMBFile->Open: Bad URL : '%s'",url.GetRedacted().c_str());
       return false;
   }
   m_url = url;
@@ -345,7 +348,7 @@ bool CSMBFile::Open(const CURL& url)
   std::string strFileName;
   m_fd = OpenFile(url, strFileName);
 
-  CLog::Log(LOGDEBUG,"CSMBFile::Open - opened %s, fd=%d",url.GetFileName().c_str(), m_fd);
+  CLog::Log(LOGDEBUG,"CSMBFile::Open - opened %s, fd=%d",url.GetRedacted().c_str(), m_fd);
   if (m_fd == -1)
   {
     // write error to logfile
@@ -387,13 +390,13 @@ int CSMBFile::OpenFile(std::string& strAuth)
   std::string strPath = g_passwordManager.GetSMBAuthFilename(strAuth);
 
   fd = smbc_open(strPath.c_str(), O_RDONLY, 0);
-  // TODO: Run a loop here that prompts for our username/password as appropriate?
-  // We have the ability to run a file (eg from a button action) without browsing to
-  // the directory first.  In the case of a password protected share that we do
-  // not have the authentication information for, the above smbc_open() will have
-  // returned negative, and the file will not be opened.  While this is not a particular
-  // likely scenario, we might want to implement prompting for the password in this case.
-  // The code from SMBDirectory can be used for this.
+  //! @todo Run a loop here that prompts for our username/password as appropriate?
+  //! We have the ability to run a file (eg from a button action) without browsing to
+  //! the directory first.  In the case of a password protected share that we do
+  //! not have the authentication information for, the above smbc_open() will have
+  //! returned negative, and the file will not be opened.  While this is not a particular
+  //! likely scenario, we might want to implement prompting for the password in this case.
+  //! The code from SMBDirectory can be used for this.
   if(fd >= 0)
     strAuth = strPath;
 
@@ -447,20 +450,7 @@ int CSMBFile::Stat(struct __stat64* buffer)
 
   CSingleLock lock(smb);
   int iResult = smbc_fstat(m_fd, &tmpBuffer);
-
-  memset(buffer, 0, sizeof(struct __stat64));
-  buffer->st_dev = tmpBuffer.st_dev;
-  buffer->st_ino = tmpBuffer.st_ino;
-  buffer->st_mode = tmpBuffer.st_mode;
-  buffer->st_nlink = tmpBuffer.st_nlink;
-  buffer->st_uid = tmpBuffer.st_uid;
-  buffer->st_gid = tmpBuffer.st_gid;
-  buffer->st_rdev = tmpBuffer.st_rdev;
-  buffer->st_size = tmpBuffer.st_size;
-  buffer->st_atime = tmpBuffer.st_atime;
-  buffer->st_mtime = tmpBuffer.st_mtime;
-  buffer->st_ctime = tmpBuffer.st_ctime;
-
+  CUtil::StatToStat64(buffer, &tmpBuffer);
   return iResult;
 }
 
@@ -472,20 +462,7 @@ int CSMBFile::Stat(const CURL& url, struct __stat64* buffer)
 
   struct stat tmpBuffer = {0};
   int iResult = smbc_stat(strFileName.c_str(), &tmpBuffer);
-
-  memset(buffer, 0, sizeof(struct __stat64));
-  buffer->st_dev = tmpBuffer.st_dev;
-  buffer->st_ino = tmpBuffer.st_ino;
-  buffer->st_mode = tmpBuffer.st_mode;
-  buffer->st_nlink = tmpBuffer.st_nlink;
-  buffer->st_uid = tmpBuffer.st_uid;
-  buffer->st_gid = tmpBuffer.st_gid;
-  buffer->st_rdev = tmpBuffer.st_rdev;
-  buffer->st_size = tmpBuffer.st_size;
-  buffer->st_atime = tmpBuffer.st_atime;
-  buffer->st_mtime = tmpBuffer.st_mtime;
-  buffer->st_ctime = tmpBuffer.st_ctime;
-
+  CUtil::StatToStat64(buffer, &tmpBuffer);
   return iResult;
 }
 
@@ -516,6 +493,14 @@ ssize_t CSMBFile::Read(void *lpBuf, size_t uiBufSize)
   if (m_fd == -1)
     return -1;
 
+  // Some external libs (libass) use test read with zero size and 
+  // null buffer pointer to check whether file is readable, but 
+  // libsmbclient always return "-1" if called with null buffer 
+  // regardless of buffer size.
+  // To overcome this, force return "0" in that case.
+  if (uiBufSize == 0 && lpBuf == NULL)
+    return 0;
+
   CSingleLock lock(smb); // Init not called since it has to be "inited" by now
   smb.SetActivityTime();
   /* work around stupid bug in samba */
@@ -530,14 +515,14 @@ ssize_t CSMBFile::Read(void *lpBuf, size_t uiBufSize)
 
   ssize_t bytesRead = smbc_read(m_fd, lpBuf, (int)uiBufSize);
 
-  if ( bytesRead < 0 && errno == EINVAL )
+  if (m_allowRetry && bytesRead < 0 && errno == EINVAL )
   {
-    CLog::Log(LOGERROR, "%s - Error( %d, %d, %s ) - Retrying", __FUNCTION__, bytesRead, errno, strerror(errno));
+    CLog::Log(LOGERROR, "%s - Error( %" PRIdS ", %d, %s ) - Retrying", __FUNCTION__, bytesRead, errno, strerror(errno));
     bytesRead = smbc_read(m_fd, lpBuf, (int)uiBufSize);
   }
 
   if ( bytesRead < 0 )
-    CLog::Log(LOGERROR, "%s - Error( %d, %d, %s )", __FUNCTION__, bytesRead, errno, strerror(errno));
+    CLog::Log(LOGERROR, "%s - Error( %" PRIdS ", %d, %s )", __FUNCTION__, bytesRead, errno, strerror(errno));
 
   return bytesRead;
 }
@@ -573,14 +558,11 @@ void CSMBFile::Close()
 ssize_t CSMBFile::Write(const void* lpBuf, size_t uiBufSize)
 {
   if (m_fd == -1) return -1;
-  DWORD dwNumberOfBytesWritten = 0;
 
   // lpBuf can be safely casted to void* since xbmc_write will only read from it.
-  smb.Init();
   CSingleLock lock(smb);
-  dwNumberOfBytesWritten = smbc_write(m_fd, (void*)lpBuf, (DWORD)uiBufSize);
 
-  return dwNumberOfBytesWritten;
+  return  smbc_write(m_fd, (void*)lpBuf, uiBufSize);
 }
 
 bool CSMBFile::Delete(const CURL& url)
@@ -618,7 +600,6 @@ bool CSMBFile::OpenForWrite(const CURL& url, bool bOverWrite)
   m_fileSize = 0;
 
   Close();
-  smb.Init();
   // we can't open files like smb://file.f or smb://server/file.f
   // if a file matches the if below return false, it can't exist on a samba share.
   if (!IsValidFile(url.GetFileName())) return false;
@@ -628,7 +609,7 @@ bool CSMBFile::OpenForWrite(const CURL& url, bool bOverWrite)
 
   if (bOverWrite)
   {
-    CLog::Log(LOGWARNING, "SMBFile::OpenForWrite() called with overwriting enabled! - %s", strFileName.c_str());
+    CLog::Log(LOGWARNING, "SMBFile::OpenForWrite() called with overwriting enabled! - %s", CURL::GetRedacted(strFileName).c_str());
     m_fd = smbc_creat(strFileName.c_str(), 0);
   }
   else
@@ -639,7 +620,7 @@ bool CSMBFile::OpenForWrite(const CURL& url, bool bOverWrite)
   if (m_fd == -1)
   {
     // write error to logfile
-    CLog::Log(LOGERROR, "SMBFile->Open: Unable to open file : '%s'\nunix_err:'%x' error : '%s'", strFileName.c_str(), errno, strerror(errno));
+    CLog::Log(LOGERROR, "SMBFile->Open: Unable to open file : '%s'\nunix_err:'%x' error : '%s'", CURL::GetRedacted(strFileName).c_str(), errno, strerror(errno));
     return false;
   }
 
@@ -661,4 +642,18 @@ std::string CSMBFile::GetAuthenticatedPath(const CURL &url)
   CURL authURL(url);
   CPasswordManager::GetInstance().AuthenticateURL(authURL);
   return smb.URLEncode(authURL);
+}
+
+int CSMBFile::IoControl(EIoControl request, void* param)
+{
+  if (request == IOCTRL_SEEK_POSSIBLE)
+    return 1;
+
+  if (request == IOCTRL_SET_RETRY)
+  {
+    m_allowRetry = *(bool*) param;
+    return 0;
+  }
+
+  return -1;
 }

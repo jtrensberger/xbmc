@@ -21,11 +21,11 @@
 #pragma once
 
 #include <vector>
-#include "boost/shared_ptr.hpp"
+#include <memory>
 
 class TiXmlNode;
 class CGUIListItem;
-typedef boost::shared_ptr<CGUIListItem> CGUIListItemPtr;
+typedef std::shared_ptr<CGUIListItem> CGUIListItemPtr;
 
 /*!
  \ingroup listproviders
@@ -70,6 +70,18 @@ public:
    \return true if the click was handled, false otherwise.
    */
   virtual bool OnClick(const CGUIListItemPtr &item)=0;
+
+  /*! \brief Open the info dialog for an item provided by this IListProvider.
+   \param item the item that was clicked.
+   \return true if the dialog was shown, false otherwise.
+   */
+  virtual bool OnInfo(const CGUIListItemPtr &item)=0;
+
+  /*! \brief Open the context menu for an item provided by this IListProvider.
+   \param item the item that was clicked.
+   \return true if the click was handled, false otherwise.
+   */
+  virtual bool OnContextMenu(const CGUIListItemPtr &item)=0;
 
   /*! \brief Set the default item to focus. For backwards compatibility.
    \param item the item to focus.

@@ -19,10 +19,9 @@
  *
  */
 #include <vector>
-#include <boost/shared_ptr.hpp>
+#include <memory>
 
-#include "utils/Variant.h"
-
+class CVariant;
 class CSettingList;
 class CSetting;
 
@@ -45,6 +44,6 @@ public:
    */
   static bool SetList(CSettingList *settingList, const std::vector<CVariant> &value);
 
-  static std::vector<CVariant> ListToValues(const CSettingList *setting, const std::vector< boost::shared_ptr<CSetting> > &values);
-  static bool ValuesToList(const CSettingList *setting, const std::vector<CVariant> &values, std::vector< boost::shared_ptr<CSetting> > &newValues);
+  static std::vector<CVariant> ListToValues(const CSettingList *setting, const std::vector< std::shared_ptr<CSetting> > &values);
+  static bool ValuesToList(const CSettingList *setting, const std::vector<CVariant> &values, std::vector< std::shared_ptr<CSetting> > &newValues);
 };

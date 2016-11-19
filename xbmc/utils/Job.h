@@ -109,7 +109,8 @@ public:
     PRIORITY_LOW_PAUSABLE = 0,
     PRIORITY_LOW,
     PRIORITY_NORMAL,
-    PRIORITY_HIGH
+    PRIORITY_HIGH,
+    PRIORITY_DEDICATED, // will create a new worker if no worker is available at queue time
   };
   CJob() { m_callback = NULL; };
 
@@ -163,7 +164,7 @@ public:
    
    \sa IJobCallback::OnJobProgress()
    */
-  bool ShouldCancel(unsigned int progress, unsigned int total) const;
+  virtual bool ShouldCancel(unsigned int progress, unsigned int total) const;
 private:
   friend class CJobManager;
   CJobManager *m_callback;

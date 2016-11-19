@@ -27,13 +27,13 @@
 
 class CBusyWaiter : public CThread
 {
-  boost::shared_ptr<CEvent>  m_done;
+  std::shared_ptr<CEvent>  m_done;
 public:
   CBusyWaiter(IRunnable *runnable) : CThread(runnable, "waiting"), m_done(new CEvent()) {  }
   
   bool Wait()
   {
-    boost::shared_ptr<CEvent> e_done(m_done);
+    std::shared_ptr<CEvent> e_done(m_done);
 
     Create();
     return CGUIDialogBusy::WaitOnEvent(*e_done);
@@ -42,7 +42,7 @@ public:
   // 'this' is actually deleted from the thread where it's on the stack
   virtual void Process()
   {
-    boost::shared_ptr<CEvent> e_done(m_done);
+    std::shared_ptr<CEvent> e_done(m_done);
 
     CThread::Process();
     (*e_done).Set();
@@ -67,16 +67,18 @@ bool CGUIDialogBusy::WaitOnEvent(CEvent &event, unsigned int displaytime /* = 10
     CGUIDialogBusy* dialog = (CGUIDialogBusy*)g_windowManager.GetWindow(WINDOW_DIALOG_BUSY);
     if (dialog)
     {
-      dialog->Show();
+      dialog->Open();
+
       while(!event.WaitMSec(1))
       {
-        g_windowManager.ProcessRenderLoop(false);
+        dialog->ProcessRenderLoop(false);
         if (allowCancel && dialog->IsCanceled())
         {
           cancelled = true;
           break;
         }
       }
+      
       dialog->Close();
     }
   }
@@ -84,31 +86,27 @@ bool CGUIDialogBusy::WaitOnEvent(CEvent &event, unsigned int displaytime /* = 10
 }
 
 CGUIDialogBusy::CGUIDialogBusy(void)
-  : CGUIDialog(WINDOW_DIALOG_BUSY, "DialogBusy.xml"), m_bLastVisible(false)
+  : CGUIDialog(WINDOW_DIALOG_BUSY, "DialogBusy.xml", DialogModalityType::PARENTLESS_MODAL),
+    m_bLastVisible(false)
 {
   m_loadType = LOAD_ON_GUI_INIT;
-  m_bModal = true;
-  m_progress = 0;
+  m_bCanceled = false;
+  m_progress = -1;
 }
 
 CGUIDialogBusy::~CGUIDialogBusy(void)
 {
 }
 
-void CGUIDialogBusy::Show_Internal()
+void CGUIDialogBusy::Open_Internal(const std::string &param /* = "" */)
 {
   m_bCanceled = false;
-  m_active = true;
-  m_bModal = true;
   m_bLastVisible = true;
-  m_closing = false;
-  m_progress = 0;
-  g_windowManager.RouteToWindow(this);
+  m_progress = -1;
 
-  // active this window...
-  CGUIMessage msg(GUI_MSG_WINDOW_INIT, 0, 0);
-  OnMessage(msg);
+  CGUIDialog::Open_Internal(false, param);
 }
+
 
 void CGUIDialogBusy::DoProcess(unsigned int currentTime, CDirtyRegionList &dirtyregions)
 {
@@ -123,7 +121,7 @@ void CGUIDialogBusy::DoProcess(unsigned int currentTime, CDirtyRegionList &dirty
   {
     CGUIProgressControl *progress = (CGUIProgressControl *)control;
     progress->SetPercentage(m_progress);
-    progress->SetVisible(m_progress > 0);
+    progress->SetVisible(m_progress > -1);
   }
 
   CGUIDialog::DoProcess(currentTime, dirtyregions);

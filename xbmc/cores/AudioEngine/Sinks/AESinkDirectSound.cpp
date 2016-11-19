@@ -20,15 +20,14 @@
 
 #define INITGUID
 
+#include <algorithm>
+
 #include "AESinkDirectSound.h"
 #include "utils/log.h"
 #include <initguid.h>
 #include <list>
 #include "threads/SingleLock.h"
 #include "threads/SystemClock.h"
-#include "utils/SystemInfo.h"
-#include "utils/TimeUtils.h"
-#include "utils/CharsetConverter.h"
 #include <Audioclient.h>
 #include <Mmreg.h>
 #include <mmdeviceapi.h>
@@ -193,7 +192,7 @@ bool CAESinkDirectSound::Initialize(AEAudioFormat &format, std::string &device)
   else
     tmp_hWnd = g_hWnd;
 
-  CLog::Log(LOGDEBUG, __FUNCTION__": Using Window handle: %d", tmp_hWnd);
+  CLog::Log(LOGDEBUG, __FUNCTION__": Using Window handle: %p", tmp_hWnd);
 
   hr = m_pDSound->SetCooperativeLevel(tmp_hWnd, DSSCL_PRIORITY);
 
@@ -207,12 +206,16 @@ bool CAESinkDirectSound::Initialize(AEAudioFormat &format, std::string &device)
 
   WAVEFORMATEXTENSIBLE wfxex = {0};
 
+  // clamp samplerate to a minimum
+  if (format.m_sampleRate < 44100)
+    format.m_sampleRate = 44100;
+
   //fill waveformatex
   ZeroMemory(&wfxex, sizeof(WAVEFORMATEXTENSIBLE));
   wfxex.Format.cbSize          = sizeof(WAVEFORMATEXTENSIBLE)-sizeof(WAVEFORMATEX);
   wfxex.Format.nChannels       = format.m_channelLayout.Count();
   wfxex.Format.nSamplesPerSec  = format.m_sampleRate;
-  if (AE_IS_RAW(format.m_dataFormat))
+  if (format.m_dataFormat == AE_FMT_RAW)
   {
     wfxex.dwChannelMask          = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT;
     wfxex.Format.wFormatTag      = WAVE_FORMAT_DOLBY_AC3_SPDIF;
@@ -277,9 +280,8 @@ bool CAESinkDirectSound::Initialize(AEAudioFormat &format, std::string &device)
   format.m_channelLayout = m_channelLayout;
   m_encodedFormat = format.m_dataFormat;
   format.m_frames = uiFrameCount;
-  format.m_frameSamples = format.m_frames * format.m_channelLayout.Count();
-  format.m_frameSize = (AE_IS_RAW(format.m_dataFormat) ? wfxex.Format.wBitsPerSample >> 3 : sizeof(float)) * format.m_channelLayout.Count();
-  format.m_dataFormat = AE_IS_RAW(format.m_dataFormat) ? AE_FMT_S16NE : AE_FMT_FLOAT;
+  format.m_frameSize =  ((format.m_dataFormat == AE_FMT_RAW) ? (wfxex.Format.wBitsPerSample >> 3) : sizeof(float)) * format.m_channelLayout.Count();
+  format.m_dataFormat = (format.m_dataFormat == AE_FMT_RAW) ? AE_FMT_S16NE : AE_FMT_FLOAT;
 
   m_format = format;
   m_device = device;
@@ -304,7 +306,6 @@ bool CAESinkDirectSound::Initialize(AEAudioFormat &format, std::string &device)
   CLog::Log(LOGDEBUG, "  Channel Layout  : %s", ((std::string)format.m_channelLayout).c_str());
   CLog::Log(LOGDEBUG, "  Channel Mask    : %d", wfxex.dwChannelMask);
   CLog::Log(LOGDEBUG, "  Frames          : %d", format.m_frames);
-  CLog::Log(LOGDEBUG, "  Frame Samples   : %d", format.m_frameSamples);
   CLog::Log(LOGDEBUG, "  Frame Size      : %d", format.m_frameSize);
 
   return true;
@@ -347,7 +348,11 @@ unsigned int CAESinkDirectSound::AddPackets(uint8_t **data, unsigned int frames,
   unsigned char* pBuffer = (unsigned char*)data[0]+offset*m_format.m_frameSize;
 
   DWORD bufferStatus = 0;
-  m_pBuffer->GetStatus(&bufferStatus);
+  if (m_pBuffer->GetStatus(&bufferStatus) != DS_OK)
+  {
+    CLog::Log(LOGERROR, "%s: GetStatus() failed", __FUNCTION__);
+    return 0;
+  }
   if (bufferStatus & DSBSTATUS_BUFFERLOST)
   {
     CLog::Log(LOGDEBUG, __FUNCTION__ ": Buffer allocation was lost. Restoring buffer.");
@@ -552,9 +557,14 @@ void CAESinkDirectSound::EnumerateDevicesEx(AEDeviceInfoList &deviceInfoList, bo
       deviceInfo.m_dataFormats.push_back(AEDataFormat(AE_FMT_FLOAT));
       if (aeDeviceType != AE_DEVTYPE_PCM)
       {
-        deviceInfo.m_dataFormats.push_back(AEDataFormat(AE_FMT_AC3));
+        deviceInfo.m_streamTypes.push_back(CAEStreamInfo::STREAM_TYPE_AC3);
         // DTS is played with the same infrastructure as AC3
-        deviceInfo.m_dataFormats.push_back(AEDataFormat(AE_FMT_DTS));
+        deviceInfo.m_streamTypes.push_back(CAEStreamInfo::STREAM_TYPE_DTSHD_CORE);
+        deviceInfo.m_streamTypes.push_back(CAEStreamInfo::STREAM_TYPE_DTS_1024);
+        deviceInfo.m_streamTypes.push_back(CAEStreamInfo::STREAM_TYPE_DTS_2048);
+        deviceInfo.m_streamTypes.push_back(CAEStreamInfo::STREAM_TYPE_DTS_512);
+        // signal that we can doe AE_FMT_RAW
+        deviceInfo.m_dataFormats.push_back(AE_FMT_RAW);
       }
       deviceInfo.m_sampleRates.push_back(std::min(smpwfxex->nSamplesPerSec, (DWORD) 192000));
     }
@@ -572,6 +582,7 @@ void CAESinkDirectSound::EnumerateDevicesEx(AEDeviceInfoList &deviceInfoList, bo
     deviceInfo.m_displayNameExtra = std::string("DIRECTSOUND: ").append(strFriendlyName);
     deviceInfo.m_deviceType       = aeDeviceType;
 
+    deviceInfo.m_wantsIECPassthrough = true;
     deviceInfoList.push_back(deviceInfo);
 
     // add the default device with m_deviceName = default
@@ -580,6 +591,7 @@ void CAESinkDirectSound::EnumerateDevicesEx(AEDeviceInfoList &deviceInfoList, bo
       deviceInfo.m_deviceName = std::string("default");
       deviceInfo.m_displayName = std::string("default");
       deviceInfo.m_displayNameExtra = std::string("");
+      deviceInfo.m_wantsIECPassthrough = true;
       deviceInfoList.push_back(deviceInfo);
     }
   }
@@ -601,7 +613,11 @@ failed:
 void CAESinkDirectSound::CheckPlayStatus()
 {
   DWORD status = 0;
-  m_pBuffer->GetStatus(&status);
+  if (m_pBuffer->GetStatus(&status) != DS_OK)
+  {
+    CLog::Log(LOGERROR, "%s: GetStatus() failed", __FUNCTION__);
+    return;
+  }
 
   if (!(status & DSBSTATUS_PLAYING) && m_CacheLen != 0) // If we have some data, see if we can start playback
   {

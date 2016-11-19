@@ -18,14 +18,13 @@
  *  <http://www.gnu.org/licenses/>.
  *
  */
-%>
-<%
     List templateArgs = swigTypeParser.SwigType_templateparmlist(ltype)
     vectype = templateArgs[0]
     boolean ispointer = swigTypeParser.SwigType_ispointer(type)
     String accessor = ispointer ? '->' : '.'
     int seq = sequence.increment()
 %>
+    if (${slarg})
     {
       bool isTuple = PyObject_TypeCheck(${slarg},&PyTuple_Type);
       if (!isTuple && !PyObject_TypeCheck(${slarg},&PyList_Type))

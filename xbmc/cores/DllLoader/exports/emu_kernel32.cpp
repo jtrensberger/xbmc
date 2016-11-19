@@ -20,6 +20,7 @@
 
 #include "emu_kernel32.h"
 #include "emu_dummy.h"
+#include "CompileInfo.h"
 #include "utils/log.h"
 
 #include "storage/IoSupport.h"
@@ -33,15 +34,18 @@
 #include "filesystem/SpecialProtocol.h"
 
 #ifdef TARGET_POSIX
-#include "../../../linux/PlatformInclude.h"
+#include "linux/PlatformInclude.h"
+#include "linux/XFileUtils.h"
+#include "linux/XTimeUtils.h"
+#include "linux/ConvUtils.h"
 #define __except catch
 #endif
 
 #include <string.h>
 #include <vector>
-using namespace std;
+#include <stdlib.h>
 
-vector<string> m_vecAtoms;
+std::vector<std::string> m_vecAtoms;
 
 //#define API_DEBUG
 
@@ -54,7 +58,7 @@ extern "C" UINT WINAPI dllGetAtomNameA( ATOM nAtom, LPTSTR lpBuffer, int nSize)
 {
   if (nAtom < 1 || nAtom > m_vecAtoms.size() ) return 0;
   nAtom--;
-  string& strAtom = m_vecAtoms[nAtom];
+  std::string& strAtom = m_vecAtoms[nAtom];
   strcpy(lpBuffer, strAtom.c_str());
   return strAtom.size();
 }
@@ -63,7 +67,7 @@ extern "C" ATOM WINAPI dllFindAtomA( LPCTSTR lpString)
 {
   for (int i = 0; i < (int)m_vecAtoms.size(); ++i)
   {
-    string& strAtom = m_vecAtoms[i];
+    std::string& strAtom = m_vecAtoms[i];
     if (strAtom == lpString) return i + 1;
   }
   return 0;
@@ -79,12 +83,14 @@ extern "C" ATOM WINAPI dllDeleteAtomA(ATOM nAtom)
 {
 }*/
 
+#ifdef TARGET_WINDOWS
+
 extern "C" BOOL WINAPI dllFindClose(HANDLE hFile)
 {
   return FindClose(hFile);
 }
 
-#ifdef TARGET_WINDOWS
+
 #define CORRECT_SEP_STR(str) \
   if (strstr(str, "://") == NULL) \
   { \
@@ -152,7 +158,6 @@ static void to_WIN32_FIND_DATAW(LPWIN32_FIND_DATA data, LPWIN32_FIND_DATAW wdata
   wdata->dwReserved0 = data->dwReserved0;
   wdata->dwReserved1 = data->dwReserved1;
 }
-#endif
 
 extern "C" HANDLE WINAPI dllFindFirstFileA(LPCTSTR lpFileName, LPWIN32_FIND_DATA lpFindFileData)
 {
@@ -219,6 +224,7 @@ extern "C" DWORD WINAPI dllGetFileAttributesA(LPCSTR lpFileName)
   return GetFileAttributes(str);
 #endif
 }
+#endif
 
 extern "C" void WINAPI dllSleep(DWORD dwTime)
 {
@@ -271,8 +277,8 @@ static void DumpSystemInfo(const SYSTEM_INFO* si)
 {
   CLog::Log(LOGDEBUG, "  Processor architecture %d\n", si->wProcessorArchitecture);
   CLog::Log(LOGDEBUG, "  Page size: %d\n", si->dwPageSize);
-  CLog::Log(LOGDEBUG, "  Minimum app address: %d\n", si->lpMinimumApplicationAddress);
-  CLog::Log(LOGDEBUG, "  Maximum app address: %d\n", si->lpMaximumApplicationAddress);
+  CLog::Log(LOGDEBUG, "  Minimum app address: %p\n", si->lpMinimumApplicationAddress);
+  CLog::Log(LOGDEBUG, "  Maximum app address: %p\n", si->lpMaximumApplicationAddress);
   CLog::Log(LOGDEBUG, "  Active processor mask: 0x%x\n", si->dwActiveProcessorMask);
   CLog::Log(LOGDEBUG, "  Number of processors: %d\n", si->dwNumberOfProcessors);
   CLog::Log(LOGDEBUG, "  Processor type: 0x%x\n", si->dwProcessorType);
@@ -451,7 +457,7 @@ extern "C" int WINAPI dllGetStartupInfoA(LPSTARTUPINFOA lpStartupInfo)
   lpStartupInfo->lpDesktop = NULL;
   lpStartupInfo->lpReserved = NULL;
   lpStartupInfo->lpReserved2 = 0;
-  lpStartupInfo->lpTitle = (LPTSTR)"XBMC";
+  lpStartupInfo->lpTitle = (LPTSTR)CCompileInfo::GetAppName();
   lpStartupInfo->wShowWindow = 0;
   return 1;
 }

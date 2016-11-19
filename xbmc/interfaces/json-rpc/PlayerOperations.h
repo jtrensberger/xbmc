@@ -22,9 +22,12 @@
 #include "JSONRPC.h"
 #include "FileItemHandler.h"
 
-namespace EGP
+class CVariant;
+
+namespace EPG
 {
   class CEpgInfoTag;
+  typedef std::shared_ptr<EPG::CEpgInfoTag> CEpgInfoTagPtr;
 }
 
 namespace JSONRPC
@@ -64,6 +67,7 @@ namespace JSONRPC
     
     static JSONRPC_STATUS SetAudioStream(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result);
     static JSONRPC_STATUS SetSubtitle(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result);
+    static JSONRPC_STATUS SetVideoStream(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result);
   private:
     static int GetActivePlayers();
     static PlayerType GetPlayer(const CVariant &player);
@@ -76,6 +80,6 @@ namespace JSONRPC
     static int ParseRepeatState(const CVariant &repeat);
     static double ParseTimeInSeconds(const CVariant &time);
     static bool IsPVRChannel();
-    static bool GetCurrentEpg(EPG::CEpgInfoTag &epg);
+    static EPG::CEpgInfoTagPtr GetCurrentEpg();
   };
 }

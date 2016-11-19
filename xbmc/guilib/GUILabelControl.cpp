@@ -22,8 +22,6 @@
 #include "utils/CharsetConverter.h"
 #include "utils/StringUtils.h"
 
-using namespace std;
-
 CGUILabelControl::CGUILabelControl(int parentID, int controlID, float posX, float posY, float width, float height, const CLabelInfo& labelInfo, bool wrapMultiLine, bool bHasPath)
     : CGUIControl(parentID, controlID, posX, posY, width, height)
     , m_label(posX, posY, width, height, labelInfo, wrapMultiLine ? CGUILabel::OVER_FLOW_WRAP : CGUILabel::OVER_FLOW_TRUNCATE)
@@ -49,8 +47,8 @@ void CGUILabelControl::ShowCursor(bool bShow)
 
 void CGUILabelControl::SetCursorPos(int iPos)
 {
-  CStdString labelUTF8 = m_infoLabel.GetLabel(m_parentID);
-  CStdStringW label;
+  std::string labelUTF8 = m_infoLabel.GetLabel(m_parentID);
+  std::wstring label;
   g_charsetConverter.utf8ToW(labelUTF8, label);
   if (iPos > (int)label.length()) iPos = label.length();
   if (iPos < 0) iPos = 0;
@@ -76,12 +74,12 @@ bool CGUILabelControl::UpdateColors()
 
 void CGUILabelControl::UpdateInfo(const CGUIListItem *item)
 {
-  CStdString label(m_infoLabel.GetLabel(m_parentID));
+  std::string label(m_infoLabel.GetLabel(m_parentID));
 
   bool changed = false;
   if (m_startHighlight < m_endHighlight || m_startSelection < m_endSelection || m_bShowCursor)
   {
-    CStdStringW utf16;
+    std::wstring utf16;
     g_charsetConverter.utf8ToW(label, utf16);
     vecText text; text.reserve(utf16.size()+1);
     vecColors colors;
@@ -154,7 +152,7 @@ bool CGUILabelControl::CanFocus() const
   return false;
 }
 
-void CGUILabelControl::SetLabel(const string &strLabel)
+void CGUILabelControl::SetLabel(const std::string &strLabel)
 {
   // NOTE: this optimization handles fixed labels only (i.e. not info labels).
   // One way it might be extended to all labels would be for GUIInfoLabel ( or here )
@@ -216,7 +214,7 @@ bool CGUILabelControl::OnMessage(CGUIMessage& message)
   return CGUIControl::OnMessage(message);
 }
 
-CStdString CGUILabelControl::ShortenPath(const CStdString &path)
+std::string CGUILabelControl::ShortenPath(const std::string &path)
 {
   if (m_width == 0 || path.empty())
     return path;
@@ -236,7 +234,7 @@ CStdString CGUILabelControl::ShortenPath(const CStdString &path)
   if ( cDelim == '\0' )
     return path;
 
-  CStdString workPath(path);
+  std::string workPath(path);
   // remove trailing slashes
   if (workPath.size() > 3)
     if (!StringUtils::EndsWith(workPath, "://") &&

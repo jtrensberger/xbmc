@@ -27,26 +27,26 @@
 #include "StereoscopicsManager.h"
 
 #include "Application.h"
-#include "ApplicationMessenger.h"
+#include "messaging/ApplicationMessenger.h"
 #include "dialogs/GUIDialogKaiToast.h"
 #include "dialogs/GUIDialogSelect.h"
-#include "FileItem.h"
 #include "GUIInfoManager.h"
 #include "GUIUserMessages.h"
 #include "guilib/LocalizeStrings.h"
-#include "guilib/Key.h"
+#include "input/Key.h"
 #include "guilib/GUIWindowManager.h"
 #include "settings/AdvancedSettings.h"
-#include "settings/lib/ISettingCallback.h"
 #include "settings/lib/Setting.h"
 #include "settings/Settings.h"
 #include "rendering/RenderSystem.h"
 #include "utils/log.h"
 #include "utils/RegExp.h"
 #include "utils/StringUtils.h"
-#include "URL.h"
+#include "utils/Variant.h"
 #include "windowing/WindowingFactory.h"
+#include "guiinfo/GUIInfoLabels.h"
 
+using namespace KODI::MESSAGING;
 
 struct StereoModeMap
 {
@@ -61,14 +61,15 @@ static const struct StereoModeMap VideoModeToGuiModeMap[] =
   { "right_left",               RENDER_STEREO_MODE_SPLIT_VERTICAL },
   { "top_bottom",               RENDER_STEREO_MODE_SPLIT_HORIZONTAL },
   { "bottom_top",               RENDER_STEREO_MODE_SPLIT_HORIZONTAL },
-  { "checkerboard_rl",          RENDER_STEREO_MODE_OFF }, // unsupported
-  { "checkerboard_lr",          RENDER_STEREO_MODE_OFF }, // unsupported
+  { "checkerboard_rl",          RENDER_STEREO_MODE_CHECKERBOARD }, 
+  { "checkerboard_lr",          RENDER_STEREO_MODE_CHECKERBOARD },
   { "row_interleaved_rl",       RENDER_STEREO_MODE_INTERLACED },
   { "row_interleaved_lr",       RENDER_STEREO_MODE_INTERLACED },
   { "col_interleaved_rl",       RENDER_STEREO_MODE_OFF }, // unsupported
   { "col_interleaved_lr",       RENDER_STEREO_MODE_OFF }, // unsupported
   { "anaglyph_cyan_red",        RENDER_STEREO_MODE_ANAGLYPH_RED_CYAN },
   { "anaglyph_green_magenta",   RENDER_STEREO_MODE_ANAGLYPH_GREEN_MAGENTA },
+  { "anaglyph_yellow_blue",     RENDER_STEREO_MODE_ANAGLYPH_YELLOW_BLUE },
   { "block_lr",                 RENDER_STEREO_MODE_OFF }, // unsupported
   { "block_rl",                 RENDER_STEREO_MODE_OFF }, // unsupported
   {}
@@ -85,8 +86,10 @@ static const struct StereoModeMap StringToGuiModeMap[] =
   { "tab",                      RENDER_STEREO_MODE_SPLIT_HORIZONTAL }, // alias
   { "row_interleaved",          RENDER_STEREO_MODE_INTERLACED },
   { "interlaced",               RENDER_STEREO_MODE_INTERLACED }, // alias
+  { "checkerboard",             RENDER_STEREO_MODE_CHECKERBOARD },
   { "anaglyph_cyan_red",        RENDER_STEREO_MODE_ANAGLYPH_RED_CYAN },
   { "anaglyph_green_magenta",   RENDER_STEREO_MODE_ANAGLYPH_GREEN_MAGENTA },
+  { "anaglyph_yellow_blue",     RENDER_STEREO_MODE_ANAGLYPH_YELLOW_BLUE },
   { "hardware_based",           RENDER_STEREO_MODE_HARDWAREBASED },
   { "monoscopic",               RENDER_STEREO_MODE_MONO },
   {}
@@ -95,14 +98,15 @@ static const struct StereoModeMap StringToGuiModeMap[] =
 
 CStereoscopicsManager::CStereoscopicsManager(void)
 {
-  m_lastStereoMode = RENDER_STEREO_MODE_OFF;
+  m_stereoModeSetByUser = RENDER_STEREO_MODE_UNDEFINED;
+  m_lastStereoModeSetByUser = RENDER_STEREO_MODE_UNDEFINED;
 }
 
 CStereoscopicsManager::~CStereoscopicsManager(void)
 {
 }
 
-CStereoscopicsManager& CStereoscopicsManager::Get(void)
+CStereoscopicsManager& CStereoscopicsManager::GetInstance()
 {
   static CStereoscopicsManager sStereoscopicsManager;
   return sStereoscopicsManager;
@@ -110,26 +114,39 @@ CStereoscopicsManager& CStereoscopicsManager::Get(void)
 
 void CStereoscopicsManager::Initialize(void)
 {
-  m_lastStereoMode = GetStereoMode();
   // turn off stereo mode on XBMC startup
   SetStereoMode(RENDER_STEREO_MODE_OFF);
 }
 
 RENDER_STEREO_MODE CStereoscopicsManager::GetStereoMode(void)
 {
-  return (RENDER_STEREO_MODE) CSettings::Get().GetInt("videoscreen.stereoscopicmode");
+  return (RENDER_STEREO_MODE) CSettings::GetInstance().GetInt(CSettings::SETTING_VIDEOSCREEN_STEREOSCOPICMODE);
+}
+
+void CStereoscopicsManager::SetStereoModeByUser(const RENDER_STEREO_MODE &mode)
+{
+  // only update last user mode if desired mode is different from current
+  if (mode != m_stereoModeSetByUser)
+    m_lastStereoModeSetByUser = m_stereoModeSetByUser;
+
+  m_stereoModeSetByUser = mode;
+  SetStereoMode(mode);
 }
 
 void CStereoscopicsManager::SetStereoMode(const RENDER_STEREO_MODE &mode)
 {
   RENDER_STEREO_MODE currentMode = GetStereoMode();
-  if (mode != currentMode && mode >= RENDER_STEREO_MODE_OFF)
-  {
-    if(!g_Windowing.SupportsStereo(mode))
-      return;
+  RENDER_STEREO_MODE applyMode = mode;
 
-    m_lastStereoMode = currentMode;
-    CSettings::Get().SetInt("videoscreen.stereoscopicmode", mode);
+  // resolve automatic mode before applying
+  if (mode == RENDER_STEREO_MODE_AUTO)
+    applyMode = GetStereoModeOfPlayingVideo();
+
+  if (applyMode != currentMode && applyMode >= RENDER_STEREO_MODE_OFF)
+  {
+    if (!g_Windowing.SupportsStereo(applyMode))
+      return;
+    CSettings::GetInstance().SetInt(CSettings::SETTING_VIDEOSCREEN_STEREOSCOPICMODE, applyMode);
   }
 }
 
@@ -147,7 +164,7 @@ RENDER_STEREO_MODE CStereoscopicsManager::GetNextSupportedStereoMode(const RENDE
 std::string CStereoscopicsManager::DetectStereoModeByString(const std::string &needle)
 {
   std::string stereoMode = "mono";
-  CStdString searchString(needle);
+  std::string searchString(needle);
   CRegExp re(true);
 
   if (!re.RegComp(g_advancedSettings.m_stereoscopicregex_3d.c_str()))
@@ -183,19 +200,19 @@ std::string CStereoscopicsManager::DetectStereoModeByString(const std::string &n
   return stereoMode;
 }
 
-RENDER_STEREO_MODE CStereoscopicsManager::GetStereoModeByUserChoice(const CStdString &heading)
+RENDER_STEREO_MODE CStereoscopicsManager::GetStereoModeByUserChoice(const std::string &heading)
 {
   RENDER_STEREO_MODE mode = GetStereoMode();
   // if no stereo mode is set already, suggest mode of current video by preselecting it
-  if (mode == RENDER_STEREO_MODE_OFF && g_infoManager.EvaluateBool("videoplayer.isstereoscopic"))
+  if (mode == RENDER_STEREO_MODE_OFF)
     mode = GetStereoModeOfPlayingVideo();
 
   CGUIDialogSelect* pDlgSelect = (CGUIDialogSelect*)g_windowManager.GetWindow(WINDOW_DIALOG_SELECT);
   pDlgSelect->Reset();
   if (heading.empty())
-    pDlgSelect->SetHeading(g_localizeStrings.Get(36528).c_str());
+    pDlgSelect->SetHeading(CVariant{g_localizeStrings.Get(36528)});
   else
-    pDlgSelect->SetHeading(heading.c_str());
+    pDlgSelect->SetHeading(CVariant{heading});
 
   // prepare selectable stereo modes
   std::vector<RENDER_STEREO_MODE> selectableModes;
@@ -205,16 +222,22 @@ RENDER_STEREO_MODE CStereoscopicsManager::GetStereoModeByUserChoice(const CStdSt
     if (g_Windowing.SupportsStereo(selectableMode))
     {
       selectableModes.push_back(selectableMode);
-      CStdString label = GetLabelForStereoMode((RENDER_STEREO_MODE) i);
+      std::string label = GetLabelForStereoMode((RENDER_STEREO_MODE) i);
       pDlgSelect->Add( label );
       if (mode == selectableMode)
         pDlgSelect->SetSelected( label );
     }
+    // inject AUTO pseudo mode after OFF
+    if (i == RENDER_STEREO_MODE_OFF)
+    {
+      selectableModes.push_back(RENDER_STEREO_MODE_AUTO);
+      pDlgSelect->Add(GetLabelForStereoMode(RENDER_STEREO_MODE_AUTO));
+    }
   }
 
-  pDlgSelect->DoModal();
+  pDlgSelect->Open();
 
-  int iItem = pDlgSelect->GetSelectedLabel();
+  int iItem = pDlgSelect->GetSelectedItem();
   if (iItem > -1 && pDlgSelect->IsConfirmed())
     mode = (RENDER_STEREO_MODE) selectableModes[iItem];
   else
@@ -226,8 +249,8 @@ RENDER_STEREO_MODE CStereoscopicsManager::GetStereoModeByUserChoice(const CStdSt
 RENDER_STEREO_MODE CStereoscopicsManager::GetStereoModeOfPlayingVideo(void)
 {
   RENDER_STEREO_MODE mode = RENDER_STEREO_MODE_OFF;
+  std::string playerMode = GetVideoStereoMode();
 
-  CStdString playerMode = g_infoManager.GetLabel(VIDEOPLAYER_STEREOSCOPIC_MODE);
   if (!playerMode.empty())
   {
     int convertedMode = ConvertVideoToGuiStereoMode(playerMode);
@@ -235,33 +258,42 @@ RENDER_STEREO_MODE CStereoscopicsManager::GetStereoModeOfPlayingVideo(void)
       mode = (RENDER_STEREO_MODE) convertedMode;
   }
 
-  CLog::Log(LOGDEBUG, "StereoscopicsManager: autodetected GUI stereo mode for movie mode %s is: %s", playerMode.c_str(), GetLabelForStereoMode(mode).c_str());
+  CLog::Log(LOGDEBUG, "StereoscopicsManager: autodetected stereo mode for movie mode %s is: %s", playerMode.c_str(), ConvertGuiStereoModeToString(mode));
   return mode;
 }
 
-CStdString CStereoscopicsManager::GetLabelForStereoMode(const RENDER_STEREO_MODE &mode)
+const std::string &CStereoscopicsManager::GetLabelForStereoMode(const RENDER_STEREO_MODE &mode) const
 {
-  if (mode == RENDER_STEREO_MODE_AUTO)
-    return g_localizeStrings.Get(36532);
-  return g_localizeStrings.Get(36502 + mode);
+  int msgId;
+  switch(mode) {
+    case RENDER_STEREO_MODE_AUTO:
+	  msgId = 36532;
+	  break;
+    case RENDER_STEREO_MODE_ANAGLYPH_YELLOW_BLUE:
+	  msgId = 36510;
+	  break;
+    case RENDER_STEREO_MODE_INTERLACED:
+	  msgId = 36507;
+	  break;
+    case RENDER_STEREO_MODE_CHECKERBOARD:
+    msgId = 36511;
+    break;
+    case RENDER_STEREO_MODE_HARDWAREBASED:
+	  msgId = 36508;
+	  break;
+    case RENDER_STEREO_MODE_MONO:
+	  msgId = 36509;
+	  break;
+    default:
+	  msgId = 36502 + mode;
+  }
+
+  return g_localizeStrings.Get(msgId);
 }
 
 RENDER_STEREO_MODE CStereoscopicsManager::GetPreferredPlaybackMode(void)
 {
-  RENDER_STEREO_MODE playbackMode = m_lastStereoMode;
-  int preferredMode = CSettings::Get().GetInt("videoscreen.preferedstereoscopicmode");
-  if (preferredMode == RENDER_STEREO_MODE_AUTO) // automatic mode, detect by movie
-  {
-    if (g_infoManager.EvaluateBool("videoplayer.isstereoscopic"))
-      playbackMode = GetStereoModeOfPlayingVideo();
-    else if (playbackMode == RENDER_STEREO_MODE_OFF)
-      playbackMode = GetNextSupportedStereoMode(RENDER_STEREO_MODE_OFF);
-  }
-  else // predefined mode
-  {
-    playbackMode = (RENDER_STEREO_MODE) preferredMode;
-  }
-  return playbackMode;
+  return (RENDER_STEREO_MODE) CSettings::GetInstance().GetInt(CSettings::SETTING_VIDEOSCREEN_PREFEREDSTEREOSCOPICMODE);
 }
 
 int CStereoscopicsManager::ConvertVideoToGuiStereoMode(const std::string &mode)
@@ -351,10 +383,10 @@ void CStereoscopicsManager::OnSettingChanged(const CSetting *setting)
 
   const std::string &settingId = setting->GetId();
 
-  if (settingId == "videoscreen.stereoscopicmode")
+  if (settingId == CSettings::SETTING_VIDEOSCREEN_STEREOSCOPICMODE)
   {
     RENDER_STEREO_MODE mode = GetStereoMode();
-    CLog::Log(LOGDEBUG, "StereoscopicsManager: stereo mode setting changed to %s", GetLabelForStereoMode(mode).c_str());
+    CLog::Log(LOGDEBUG, "StereoscopicsManager: stereo mode setting changed to %s", ConvertGuiStereoModeToString(mode));
     ApplyStereoMode(mode);
   }
 }
@@ -381,46 +413,65 @@ bool CStereoscopicsManager::OnAction(const CAction &action)
 
   if (action.GetID() == ACTION_STEREOMODE_NEXT)
   {
-    SetStereoMode(GetNextSupportedStereoMode(mode));
+    SetStereoModeByUser(GetNextSupportedStereoMode(mode));
     return true;
   }
   else if (action.GetID() == ACTION_STEREOMODE_PREVIOUS)
   {
-    SetStereoMode(GetNextSupportedStereoMode(mode, RENDER_STEREO_MODE_COUNT - 1));
+    SetStereoModeByUser(GetNextSupportedStereoMode(mode, RENDER_STEREO_MODE_COUNT - 1));
     return true;
   }
   else if (action.GetID() == ACTION_STEREOMODE_TOGGLE)
   {
     if (mode == RENDER_STEREO_MODE_OFF)
     {
-      RENDER_STEREO_MODE targetMode = m_lastStereoMode;
-      if (targetMode == RENDER_STEREO_MODE_OFF)
-        targetMode = GetPreferredPlaybackMode();
-      SetStereoMode(targetMode);
+      RENDER_STEREO_MODE targetMode = GetPreferredPlaybackMode();
+
+      // if user selected a specific mode before, make sure to
+      // switch back into that mode on toggle.
+      if (m_stereoModeSetByUser != RENDER_STEREO_MODE_UNDEFINED)
+      {
+        // if user mode is set to OFF, he manually turned it off before. In this case use the last user applied mode
+        if (m_stereoModeSetByUser != RENDER_STEREO_MODE_OFF)
+          targetMode = m_stereoModeSetByUser;
+        else if (m_lastStereoModeSetByUser != RENDER_STEREO_MODE_UNDEFINED && m_lastStereoModeSetByUser != RENDER_STEREO_MODE_OFF)
+          targetMode = m_lastStereoModeSetByUser;
+      }
+
+      SetStereoModeByUser(targetMode);
     }
     else
     {
-      SetStereoMode(RENDER_STEREO_MODE_OFF);
+      SetStereoModeByUser(RENDER_STEREO_MODE_OFF);
     }
     return true;
   }
   else if (action.GetID() == ACTION_STEREOMODE_SELECT)
   {
-    SetStereoMode(GetStereoModeByUserChoice());
+    SetStereoModeByUser(GetStereoModeByUserChoice());
     return true;
   }
   else if (action.GetID() == ACTION_STEREOMODE_TOMONO)
   {
     if (mode == RENDER_STEREO_MODE_MONO)
     {
-      RENDER_STEREO_MODE targetMode = m_lastStereoMode;
-      if (targetMode == RENDER_STEREO_MODE_OFF)
-        targetMode = GetPreferredPlaybackMode();
-      SetStereoMode(targetMode);
+      RENDER_STEREO_MODE targetMode = GetPreferredPlaybackMode();
+
+      // if we have an old userdefined steremode, use that one as toggle target
+      if (m_stereoModeSetByUser != RENDER_STEREO_MODE_UNDEFINED)
+      {
+        // if user mode is set to OFF, he manually turned it off before. In this case use the last user applied mode
+        if (m_stereoModeSetByUser != RENDER_STEREO_MODE_OFF && m_stereoModeSetByUser != mode)
+          targetMode = m_stereoModeSetByUser;
+        else if (m_lastStereoModeSetByUser != RENDER_STEREO_MODE_UNDEFINED && m_lastStereoModeSetByUser != RENDER_STEREO_MODE_OFF && m_lastStereoModeSetByUser != mode)
+          targetMode = m_lastStereoModeSetByUser;
+      }
+
+      SetStereoModeByUser(targetMode);
     }
     else
     {
-      SetStereoMode(RENDER_STEREO_MODE_MONO);
+      SetStereoModeByUser(RENDER_STEREO_MODE_MONO);
     }
     return true;
   }
@@ -428,7 +479,7 @@ bool CStereoscopicsManager::OnAction(const CAction &action)
   {
     int stereoMode = ConvertStringToGuiStereoMode(action.GetName());
     if (stereoMode > -1)
-      SetStereoMode( (RENDER_STEREO_MODE) stereoMode);
+      SetStereoModeByUser( (RENDER_STEREO_MODE) stereoMode );
     return true;
   }
 
@@ -438,82 +489,122 @@ bool CStereoscopicsManager::OnAction(const CAction &action)
 void CStereoscopicsManager::ApplyStereoMode(const RENDER_STEREO_MODE &mode, bool notify)
 {
   RENDER_STEREO_MODE currentMode = g_graphicsContext.GetStereoMode();
-  CLog::Log(LOGDEBUG, "StereoscopicsManager::ApplyStereoMode: trying to apply stereo mode. Current: %s | Target: %s", GetLabelForStereoMode(currentMode).c_str(), GetLabelForStereoMode(mode).c_str());
+  CLog::Log(LOGDEBUG, "StereoscopicsManager::ApplyStereoMode: trying to apply stereo mode. Current: %s | Target: %s", ConvertGuiStereoModeToString(currentMode), ConvertGuiStereoModeToString(mode));
   if (currentMode != mode)
   {
     g_graphicsContext.SetStereoMode(mode);
-    CLog::Log(LOGDEBUG, "StereoscopicsManager: stereo mode changed to %s", GetLabelForStereoMode(mode).c_str());
+    CLog::Log(LOGDEBUG, "StereoscopicsManager: stereo mode changed to %s", ConvertGuiStereoModeToString(mode));
     if (notify)
       CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Info, g_localizeStrings.Get(36501), GetLabelForStereoMode(mode));
   }
 }
 
+std::string CStereoscopicsManager::GetVideoStereoMode()
+{
+  std::string playerMode;
+  if (g_application.m_pPlayer->IsPlaying())
+  {
+    SPlayerVideoStreamInfo videoInfo;
+    g_application.m_pPlayer->GetVideoStreamInfo(CURRENT_STREAM, videoInfo);
+    playerMode = videoInfo.stereoMode;
+  }
+  return playerMode;
+}
+
+bool CStereoscopicsManager::IsVideoStereoscopic()
+{
+  std::string mode = GetVideoStereoMode();
+  return !mode.empty() && mode != "mono";
+}
+
 void CStereoscopicsManager::OnPlaybackStarted(void)
 {
-  if (!g_infoManager.EvaluateBool("videoplayer.isstereoscopic"))
-    return;
-
-  STEREOSCOPIC_PLAYBACK_MODE playbackMode = (STEREOSCOPIC_PLAYBACK_MODE) CSettings::Get().GetInt("videoplayer.stereoscopicplaybackmode");
+  STEREOSCOPIC_PLAYBACK_MODE playbackMode = (STEREOSCOPIC_PLAYBACK_MODE) CSettings::GetInstance().GetInt(CSettings::SETTING_VIDEOPLAYER_STEREOSCOPICPLAYBACKMODE);
   RENDER_STEREO_MODE mode = GetStereoMode();
 
   // early return if playback mode should be ignored and we're in no stereoscopic mode right now
   if (playbackMode == STEREOSCOPIC_PLAYBACK_MODE_IGNORE && mode == RENDER_STEREO_MODE_OFF)
     return;
 
-  if (mode != RENDER_STEREO_MODE_OFF)
+  if (!CStereoscopicsManager::IsVideoStereoscopic())
+  {
+    // exit stereo mode if started item is not stereoscopic
+    // and if user prefers to stop 3D playback when movie is finished
+    if (mode != RENDER_STEREO_MODE_OFF && CSettings::GetInstance().GetBool(CSettings::SETTING_VIDEOPLAYER_QUITSTEREOMODEONSTOP))
+      SetStereoMode(RENDER_STEREO_MODE_OFF);
     return;
+  }
+
+  // if we're not in stereomode yet, restore previously selected stereo mode in case it was user selected
+  if (m_stereoModeSetByUser != RENDER_STEREO_MODE_UNDEFINED)
+  {
+    SetStereoMode(m_stereoModeSetByUser);
+    return;
+  }
+
+  RENDER_STEREO_MODE preferred = GetPreferredPlaybackMode();
+  RENDER_STEREO_MODE playing = GetStereoModeOfPlayingVideo();
+
+  if (mode != RENDER_STEREO_MODE_OFF)
+  {
+    // don't change mode if user selected to not exit stereomode on playback stop
+    // users selecting this option usually have to manually switch their TV into 3D mode
+    // and would be annoyed by having to switch TV modes when next movies comes up
+    // @todo probably add a new setting for just this behavior
+    if (CSettings::GetInstance().GetBool(CSettings::SETTING_VIDEOPLAYER_QUITSTEREOMODEONSTOP) == false)
+      return;
+
+    // only change to new stereo mode if not yet in preferred stereo mode
+    if (mode == preferred || (preferred == RENDER_STEREO_MODE_AUTO && mode == playing))
+      return;
+  }
 
   switch (playbackMode)
   {
   case STEREOSCOPIC_PLAYBACK_MODE_ASK: // Ask
     {
-      CApplicationMessenger::Get().MediaPause();
+      CApplicationMessenger::GetInstance().SendMsg(TMSG_MEDIA_PAUSE);
 
       CGUIDialogSelect* pDlgSelect = (CGUIDialogSelect*)g_windowManager.GetWindow(WINDOW_DIALOG_SELECT);
       pDlgSelect->Reset();
-      pDlgSelect->SetHeading(g_localizeStrings.Get(36527).c_str());
+      pDlgSelect->SetHeading(CVariant{g_localizeStrings.Get(36527)});
 
-      RENDER_STEREO_MODE preferred = GetPreferredPlaybackMode();
-      RENDER_STEREO_MODE playing   = GetStereoModeOfPlayingVideo();
-
-      int idx_playing   = -1
-        , idx_mono      = -1;
-        
+      int idx_playing   = -1;
 
       // add choices
-      int idx_preferred = pDlgSelect->Add((CStdString)g_localizeStrings.Get(36524) // preferred
+      int idx_preferred = pDlgSelect->Add(g_localizeStrings.Get(36524) // preferred
                                      + " ("
                                      + GetLabelForStereoMode(preferred)
                                      + ")");
 
-      idx_mono = pDlgSelect->Add(GetLabelForStereoMode(RENDER_STEREO_MODE_MONO)); // mono / 2d
+      int idx_mono = pDlgSelect->Add(GetLabelForStereoMode(RENDER_STEREO_MODE_MONO)); // mono / 2d
 
-      if(playing != RENDER_STEREO_MODE_OFF && playing != preferred && g_Windowing.SupportsStereo(playing))
-        idx_playing = pDlgSelect->Add((CStdString)g_localizeStrings.Get(36532)
+      if (playing != RENDER_STEREO_MODE_OFF && playing != preferred && preferred != RENDER_STEREO_MODE_AUTO && g_Windowing.SupportsStereo(playing)) // same as movie
+        idx_playing = pDlgSelect->Add(g_localizeStrings.Get(36532)
                                     + " ("
                                     + GetLabelForStereoMode(playing)
                                     + ")");
 
       int idx_select = pDlgSelect->Add( g_localizeStrings.Get(36531) ); // other / select
 
-      pDlgSelect->DoModal();
+      pDlgSelect->Open();
 
       if(pDlgSelect->IsConfirmed())
       {
-        int iItem = pDlgSelect->GetSelectedLabel();
+        int iItem = pDlgSelect->GetSelectedItem();
         if      (iItem == idx_preferred) mode = preferred;
         else if (iItem == idx_mono)      mode = RENDER_STEREO_MODE_MONO;
-        else if (iItem == idx_playing)   mode = playing;
+        else if (iItem == idx_playing)   mode = RENDER_STEREO_MODE_AUTO;
         else if (iItem == idx_select)    mode = GetStereoModeByUserChoice();
 
-        SetStereoMode(mode);
+        SetStereoModeByUser( mode );
       }
 
-      CApplicationMessenger::Get().MediaUnPause();
+      CApplicationMessenger::GetInstance().SendMsg(TMSG_MEDIA_UNPAUSE);
     }
     break;
   case STEREOSCOPIC_PLAYBACK_MODE_PREFERRED: // Stereoscopic
-    SetStereoMode( GetPreferredPlaybackMode() );
+    SetStereoMode( preferred );
     break;
   case 2: // Mono
     SetStereoMode( RENDER_STEREO_MODE_MONO );
@@ -526,8 +617,10 @@ void CStereoscopicsManager::OnPlaybackStarted(void)
 void CStereoscopicsManager::OnPlaybackStopped(void)
 {
   RENDER_STEREO_MODE mode = GetStereoMode();
-  if (CSettings::Get().GetBool("videoplayer.quitstereomodeonstop") == true && mode != RENDER_STEREO_MODE_OFF)
-  {
+  if (CSettings::GetInstance().GetBool(CSettings::SETTING_VIDEOPLAYER_QUITSTEREOMODEONSTOP) && mode != RENDER_STEREO_MODE_OFF)
     SetStereoMode(RENDER_STEREO_MODE_OFF);
-  }
+  // reset user modes on playback end to start over new on next playback and not end up in a probably unwanted mode
+  if (m_stereoModeSetByUser != RENDER_STEREO_MODE_OFF)
+    m_lastStereoModeSetByUser = m_stereoModeSetByUser;
+  m_stereoModeSetByUser = RENDER_STEREO_MODE_UNDEFINED;
 }

@@ -19,20 +19,13 @@
  *
  */
 
+#include <utility>
 #include <vector>
 
 #include "Interfaces/AE.h"
-#include "threads/Thread.h"
 
 class CSetting;
-
-enum AEEngine
-{
-  AE_ENGINE_NULL,
-  AE_ENGINE_COREAUDIO,
-  AE_ENGINE_ACTIVE,
-  AE_ENGINE_PIAUDIO
-};
+class CAEStreamInfo;
 
 class CAEFactory
 {
@@ -52,7 +45,7 @@ public:
   static void EnumerateOutputDevices(AEDeviceList &devices, bool passthrough);
   static void VerifyOutputDevice(std::string &device, bool passthrough);
   static std::string GetDefaultDevice(bool passthrough);
-  static bool SupportsRaw(AEDataFormat format, int samplerate);
+  static bool SupportsRaw(AEAudioFormat &format);
   static bool SupportsSilenceTimeout();
   static bool HasStereoAudioChannelCount();
   static bool HasHDAudioChannelCount();
@@ -67,24 +60,22 @@ public:
   static float GetVolume();
   static void SetVolume(const float volume);
   static void Shutdown();
-  static IAEStream *MakeStream(enum AEDataFormat dataFormat, unsigned int sampleRate, 
-    unsigned int encodedSampleRate, CAEChannelInfo channelLayout, unsigned int options = 0);
-  static IAEStream *FreeStream(IAEStream *stream);
+  static IAEStream *MakeStream(AEAudioFormat &audioFormat, unsigned int options = 0, IAEClockCallback *clock = NULL);
+  static bool FreeStream(IAEStream *stream);
   static void GarbageCollect();
 
   static void SettingOptionsAudioDevicesFiller(const CSetting *setting, std::vector< std::pair<std::string, std::string> > &list, std::string &current, void *data);
   static void SettingOptionsAudioDevicesPassthroughFiller(const CSetting *setting, std::vector< std::pair<std::string, std::string> > &list, std::string &current, void *data);
   static void SettingOptionsAudioQualityLevelsFiller(const CSetting *setting, std::vector< std::pair<std::string, int> > &list, int &current, void *data);
   static void SettingOptionsAudioStreamsilenceFiller(const CSetting *setting, std::vector< std::pair<std::string, int> > &list, int &current, void *data);
-  static bool IsSettingVisible(const std::string &condition, const std::string &value, const CSetting *setting);
+  static bool IsSettingVisible(const std::string &condition, const std::string &value, const CSetting *setting, void *data);
   static void KeepConfiguration(unsigned int millis);
   static void DeviceChange();
 
   static void RegisterAudioCallback(IAudioCallback* pCallback);
-  static void UnregisterAudioCallback();
+  static void UnregisterAudioCallback(IAudioCallback* pCallback);
 
 private:
-  static bool LoadEngine(enum AEEngine engine);
   static IAE *AE;
 
   static void SettingOptionsAudioDevicesFillerGeneral(const CSetting *setting, std::vector< std::pair<std::string, std::string> > &list, std::string &current, bool passthrough);

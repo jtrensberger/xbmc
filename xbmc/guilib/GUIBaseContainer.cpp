@@ -19,8 +19,6 @@
  */
 
 #include "GUIBaseContainer.h"
-#include "GUIControlFactory.h"
-#include "GUIWindowManager.h"
 #include "utils/CharsetConverter.h"
 #include "GUIInfoManager.h"
 #include "utils/TimeUtils.h"
@@ -28,12 +26,12 @@
 #include "utils/SortUtils.h"
 #include "utils/StringUtils.h"
 #include "FileItem.h"
-#include "Key.h"
+#include "input/Key.h"
 #include "utils/MathUtils.h"
 #include "utils/XBMCTinyXML.h"
 #include "listproviders/IListProvider.h"
-
-using namespace std;
+#include "settings/Settings.h"
+#include "guiinfo/GUIInfoLabels.h"
 
 #define HOLD_TIME_START 100
 #define HOLD_TIME_END   3000
@@ -350,7 +348,26 @@ bool CGUIBaseContainer::OnAction(const CAction &action)
         return CGUIControl::OnAction(action);
       }
     }
+  case ACTION_CONTEXT_MENU:
+    if (OnContextMenu())
+      return true;
     break;
+  case ACTION_SHOW_INFO:
+    if (m_listProvider)
+    {
+      int selected = GetSelectedItem();
+      if (selected >= 0 && selected < static_cast<int>(m_items.size()))
+      {
+        m_listProvider->OnInfo(m_items[selected]);
+        return true;
+      }
+    }
+    else if (OnInfo())
+      return true;
+    else if (action.GetID())
+      return OnClick(action.GetID());
+    else
+      return false;
 
   case ACTION_FIRST_PAGE:
     SelectItem(0);
@@ -362,17 +379,11 @@ bool CGUIBaseContainer::OnAction(const CAction &action)
     return true;
 
   case ACTION_NEXT_LETTER:
-    {
-      OnNextLetter();
-      return true;
-    }
-    break;
+    OnNextLetter();
+    return true;
   case ACTION_PREV_LETTER:
-    {
-      OnPrevLetter();
-      return true;
-    }
-    break;
+    OnPrevLetter();
+    return true;
   case ACTION_JUMP_SMS2:
   case ACTION_JUMP_SMS3:
   case ACTION_JUMP_SMS4:
@@ -381,19 +392,13 @@ bool CGUIBaseContainer::OnAction(const CAction &action)
   case ACTION_JUMP_SMS7:
   case ACTION_JUMP_SMS8:
   case ACTION_JUMP_SMS9:
-    {
-      OnJumpSMS(action.GetID() - ACTION_JUMP_SMS2 + 2);
-      return true;
-    }
-    break;
+    OnJumpSMS(action.GetID() - ACTION_JUMP_SMS2 + 2);
+    return true;
 
   default:
-    if (action.GetID())
-    {
-      return OnClick(action.GetID());
-    }
+    break;
   }
-  return false;
+  return action.GetID() && OnClick(action.GetID());
 }
 
 bool CGUIBaseContainer::OnMessage(CGUIMessage& message)
@@ -424,6 +429,14 @@ bool CGUIBaseContainer::OnMessage(CGUIMessage& message)
     {
       SelectItem(message.GetParam1());
       return true;
+    }
+    else if (message.GetMessage() == GUI_MSG_SETFOCUS)
+    {
+      if (message.GetParam1()) // subfocus item is specified, so set the offset appropriately
+      {
+        int item = std::min(GetOffset() + (int)message.GetParam1() - 1, (int)m_items.size() - 1);
+        SelectItem(item);
+      }
     }
     else if (message.GetMessage() == GUI_MSG_ITEM_SELECTED)
     {
@@ -466,7 +479,7 @@ bool CGUIBaseContainer::OnMessage(CGUIMessage& message)
 
 void CGUIBaseContainer::OnUp()
 {
-  CGUIAction action = GetNavigateAction(ACTION_MOVE_UP);
+  CGUIAction action = GetAction(ACTION_MOVE_UP);
   bool wrapAround = action.GetNavigation() == GetID() || !action.HasActionsMeetingCondition();
   if (m_orientation == VERTICAL && MoveUp(wrapAround))
     return;
@@ -476,7 +489,7 @@ void CGUIBaseContainer::OnUp()
 
 void CGUIBaseContainer::OnDown()
 {
-  CGUIAction action = GetNavigateAction(ACTION_MOVE_DOWN);
+  CGUIAction action = GetAction(ACTION_MOVE_DOWN);
   bool wrapAround = action.GetNavigation() == GetID() || !action.HasActionsMeetingCondition();
   if (m_orientation == VERTICAL && MoveDown(wrapAround))
     return;
@@ -486,7 +499,7 @@ void CGUIBaseContainer::OnDown()
 
 void CGUIBaseContainer::OnLeft()
 {
-  CGUIAction action = GetNavigateAction(ACTION_MOVE_LEFT);
+  CGUIAction action = GetAction(ACTION_MOVE_LEFT);
   bool wrapAround = action.GetNavigation() == GetID() || !action.HasActionsMeetingCondition();
   if (m_orientation == HORIZONTAL && MoveUp(wrapAround))
     return;
@@ -501,7 +514,7 @@ void CGUIBaseContainer::OnLeft()
 
 void CGUIBaseContainer::OnRight()
 {
-  CGUIAction action = GetNavigateAction(ACTION_MOVE_RIGHT);
+  CGUIAction action = GetAction(ACTION_MOVE_RIGHT);
   bool wrapAround = action.GetNavigation() == GetID() || !action.HasActionsMeetingCondition();
   if (m_orientation == HORIZONTAL && MoveDown(wrapAround))
     return;
@@ -561,7 +574,10 @@ void CGUIBaseContainer::OnJumpLetter(char letter, bool skip /*=false*/)
   do
   {
     CGUIListItemPtr item = m_items[i];
-    if (0 == strnicmp(SortUtils::RemoveArticles(item->GetLabel()).c_str(), m_match.c_str(), m_match.size()))
+    std::string label = item->GetLabel();
+    if (CSettings::GetInstance().GetBool(CSettings::SETTING_FILELISTS_IGNORETHEWHENSORTING))
+      label = SortUtils::RemoveArticles(label);
+    if (0 == strnicmp(label.c_str(), m_match.c_str(), m_match.size()))
     {
       SelectItem(i);
       return;
@@ -584,7 +600,7 @@ void CGUIBaseContainer::OnJumpSMS(int letter)
   if (letter < 2 || letter > 9 || !m_letterOffsets.size())
     return;
 
-  const CStdString letters = letterMap[letter - 2];
+  const std::string letters = letterMap[letter - 2];
   // find where we currently are
   int offset = CorrectOffset(GetOffset(), GetCursor());
   unsigned int currentLetter = 0;
@@ -592,7 +608,7 @@ void CGUIBaseContainer::OnJumpSMS(int letter)
     currentLetter++;
 
   // now switch to the next letter
-  CStdString current = m_letterOffsets[currentLetter].second;
+  std::string current = m_letterOffsets[currentLetter].second;
   size_t startPos = (letters.find(current) + 1) % letters.size();
   // now jump to letters[startPos], or another one in the same range if possible
   size_t pos = startPos;
@@ -637,11 +653,14 @@ int CGUIBaseContainer::GetSelectedItem() const
 
 CGUIListItemPtr CGUIBaseContainer::GetListItem(int offset, unsigned int flag) const
 {
-  if (!m_items.size())
+  if (!m_items.size() || !m_layout)
     return CGUIListItemPtr();
   int item = GetSelectedItem() + offset;
   if (flag & INFOFLAG_LISTITEM_POSITION) // use offset from the first item displayed, taking into account scrolling
     item = CorrectOffset((int)(m_scroller.GetValue() / m_layout->Size(m_orientation)), offset);
+  
+  if (flag & INFOFLAG_LISTITEM_ABSOLUTE) // use offset from the first item
+    item = CorrectOffset(0, offset);
 
   if (flag & INFOFLAG_LISTITEM_WRAP)
   {
@@ -673,7 +692,9 @@ bool CGUIBaseContainer::OnMouseOver(const CPoint &point)
 
 EVENT_RESULT CGUIBaseContainer::OnMouseEvent(const CPoint &point, const CMouseEvent &event)
 {
-  if (event.m_id >= ACTION_MOUSE_LEFT_CLICK && event.m_id <= ACTION_MOUSE_DOUBLE_CLICK)
+  if (event.m_id == ACTION_MOUSE_LEFT_CLICK ||
+      event.m_id == ACTION_MOUSE_DOUBLE_CLICK ||
+      event.m_id == ACTION_MOUSE_RIGHT_CLICK)
   {
     if (SelectItemFromPoint(point - CPoint(m_posX, m_posY)))
     {
@@ -740,7 +761,12 @@ bool CGUIBaseContainer::OnClick(int actionID)
     { // "select" action
       int selected = GetSelectedItem();
       if (selected >= 0 && selected < (int)m_items.size())
-        m_listProvider->OnClick(m_items[selected]);
+      {
+        if (m_clickActions.HasActionsMeetingCondition())
+          m_clickActions.ExecuteActions(0, GetParentID(), m_items[selected]);
+        else
+          m_listProvider->OnClick(m_items[selected]);
+      }
       return true;
     }
     // grab the currently focused subitem (if applicable)
@@ -748,9 +774,28 @@ bool CGUIBaseContainer::OnClick(int actionID)
     if (focusedLayout)
       subItem = focusedLayout->GetFocusedItem();
   }
+  else if (actionID == ACTION_MOUSE_RIGHT_CLICK)
+  {
+    if (OnContextMenu())
+      return true;
+  }
   // Don't know what to do, so send to our parent window.
   CGUIMessage msg(GUI_MSG_CLICKED, GetID(), GetParentID(), actionID, subItem);
   return SendWindowMessage(msg);
+}
+
+bool CGUIBaseContainer::OnContextMenu()
+{
+  if (m_listProvider)
+  {
+    int selected = GetSelectedItem();
+    if (selected >= 0 && selected < static_cast<int>(m_items.size()))
+    {
+      m_listProvider->OnContextMenu(m_items[selected]);
+      return true;
+    }
+  }
+  return false;
 }
 
 std::string CGUIBaseContainer::GetDescription() const
@@ -778,7 +823,7 @@ void CGUIBaseContainer::SetFocus(bool bOnOff)
   CGUIControl::SetFocus(bOnOff);
 }
 
-void CGUIBaseContainer::SaveStates(vector<CControlState> &states)
+void CGUIBaseContainer::SaveStates(std::vector<CControlState> &states)
 {
   if (!m_listProvider || !m_listProvider->AlwaysFocusDefaultItem())
     states.push_back(CControlState(GetID(), GetSelectedItem()));
@@ -884,11 +929,15 @@ void CGUIBaseContainer::UpdateListProvider(bool forceRefresh /* = false */)
       // save the current item
       int currentItem = GetSelectedItem();
       CGUIListItem *current = (currentItem >= 0 && currentItem < (int)m_items.size()) ? m_items[currentItem].get() : NULL;
+      const std::string prevSelectedPath((current && current->IsFileItem()) ? static_cast<CFileItem *>(current)->GetPath() : "");
+
       Reset();
       m_listProvider->Fetch(m_items);
       SetPageControlRange();
       // update the newly selected item
       bool found = false;
+
+      // first, try to re-identify selected item by comparing item pointers, though it is not guaranteed that item instances got not recreated on update.
       for (int i = 0; i < (int)m_items.size(); i++)
       {
         if (m_items[i].get() == current)
@@ -898,6 +947,27 @@ void CGUIBaseContainer::UpdateListProvider(bool forceRefresh /* = false */)
           {
             SelectItem(i);
             break;
+          }
+        }
+      }
+      if (!found && !prevSelectedPath.empty())
+      {
+        // as fallback, try to re-identify selected item by comparing item paths.
+        for (int i = 0; i < static_cast<int>(m_items.size()); i++)
+        {
+          const CGUIListItemPtr c(m_items[i]);
+          if (c->IsFileItem())
+          {
+            const std::string &selectedPath = static_cast<CFileItem *>(c.get())->GetPath();
+            if (selectedPath == prevSelectedPath)
+            {
+              found = true;
+              if (i != currentItem)
+              {
+                SelectItem(i);
+                break;
+              }
+            }
           }
         }
       }
@@ -935,13 +1005,13 @@ void CGUIBaseContainer::UpdateScrollByLetter()
   m_letterOffsets.clear();
 
   // for scrolling by letter we have an offset table into our vector.
-  CStdString currentMatch;
+  std::string currentMatch;
   for (unsigned int i = 0; i < m_items.size(); i++)
   {
     CGUIListItemPtr item = m_items[i];
     // The letter offset jumping is only for ASCII characters at present, and
     // our checks are all done in uppercase
-    CStdString nextLetter;
+    std::string nextLetter;
     std::wstring character = item->GetSortLabel().substr(0, 1);
     StringUtils::ToUpper(character);
     g_charsetConverter.wToUTF8(character, nextLetter);
@@ -1069,17 +1139,15 @@ void CGUIBaseContainer::LoadLayout(TiXmlElement *layout)
   TiXmlElement *itemElement = layout->FirstChildElement("itemlayout");
   while (itemElement)
   { // we have a new item layout
-    CGUIListItemLayout itemLayout;
-    itemLayout.LoadLayout(itemElement, GetParentID(), false);
-    m_layouts.push_back(itemLayout);
+    m_layouts.emplace_back();
+    m_layouts.back().LoadLayout(itemElement, GetParentID(), false);
     itemElement = itemElement->NextSiblingElement("itemlayout");
   }
   itemElement = layout->FirstChildElement("focusedlayout");
   while (itemElement)
   { // we have a new item layout
-    CGUIListItemLayout itemLayout;
-    itemLayout.LoadLayout(itemElement, GetParentID(), true);
-    m_focusedLayouts.push_back(itemLayout);
+    m_focusedLayouts.emplace_back();
+    m_focusedLayouts.back().LoadLayout(itemElement, GetParentID(), true);
     itemElement = itemElement->NextSiblingElement("focusedlayout");
   }
 }
@@ -1156,6 +1224,8 @@ bool CGUIBaseContainer::GetCondition(int condition, int data) const
     return (HasNextPage());
   case CONTAINER_HAS_PREVIOUS:
     return (HasPreviousPage());
+  case CONTAINER_HAS_PARENT_ITEM:
+    return (m_items.size() && m_items[0]->IsFileItem() && (std::static_pointer_cast<CFileItem>(m_items[0]))->IsParentFolder());
   case CONTAINER_SUBITEM:
     {
       CGUIListItemLayout *layout = GetFocusedLayout();
@@ -1173,28 +1243,28 @@ bool CGUIBaseContainer::GetCondition(int condition, int data) const
 void CGUIBaseContainer::GetCurrentLayouts()
 {
   m_layout = NULL;
-  for (unsigned int i = 0; i < m_layouts.size(); i++)
+  for (auto &layout : m_layouts)
   {
-    if (m_layouts[i].CheckCondition())
+    if (layout.CheckCondition())
     {
-      m_layout = &m_layouts[i];
+      m_layout = &layout;
       break;
     }
   }
-  if (!m_layout && m_layouts.size())
-    m_layout = &m_layouts[0];  // failsafe
+  if (!m_layout && !m_layouts.empty())
+    m_layout = &m_layouts.front(); // failsafe
 
   m_focusedLayout = NULL;
-  for (unsigned int i = 0; i < m_focusedLayouts.size(); i++)
+  for (auto &layout : m_focusedLayouts)
   {
-    if (m_focusedLayouts[i].CheckCondition())
+    if (layout.CheckCondition())
     {
-      m_focusedLayout = &m_focusedLayouts[i];
+      m_focusedLayout = &layout;
       break;
     }
   }
-  if (!m_focusedLayout && m_focusedLayouts.size())
-    m_focusedLayout = &m_focusedLayouts[0];  // failsafe
+  if (!m_focusedLayout && !m_focusedLayouts.empty())
+    m_focusedLayout = &m_focusedLayouts.front(); // failsafe
 }
 
 bool CGUIBaseContainer::HasNextPage() const
@@ -1221,10 +1291,18 @@ std::string CGUIBaseContainer::GetLabel(int info) const
   case CONTAINER_POSITION:
     label = StringUtils::Format("%i", GetCursor());
     break;
+  case CONTAINER_CURRENT_ITEM:
+    {
+      if (m_items.size() && m_items[0]->IsFileItem() && (std::static_pointer_cast<CFileItem>(m_items[0]))->IsParentFolder())
+        label = StringUtils::Format("%i", GetSelectedItem());
+      else
+        label = StringUtils::Format("%i", GetSelectedItem() + 1);
+    }
+    break;
   case CONTAINER_NUM_ITEMS:
     {
       unsigned int numItems = GetNumItems();
-      if (numItems && m_items[0]->IsFileItem() && (boost::static_pointer_cast<CFileItem>(m_items[0]))->IsParentFolder())
+      if (numItems && m_items[0]->IsFileItem() && (std::static_pointer_cast<CFileItem>(m_items[0]))->IsParentFolder())
         label = StringUtils::Format("%u", numItems-1);
       else
         label = StringUtils::Format("%u", numItems);
@@ -1292,5 +1370,16 @@ void CGUIBaseContainer::OnFocus()
   if (m_listProvider && m_listProvider->AlwaysFocusDefaultItem())
     SelectItem(m_listProvider->GetDefaultItem());
 
+  if (m_focusActions.HasAnyActions())
+    m_focusActions.ExecuteActions(GetID(), GetParentID());
+
   CGUIControl::OnFocus();
+}
+
+void CGUIBaseContainer::OnUnFocus()
+{
+  if (m_unfocusActions.HasAnyActions())
+    m_unfocusActions.ExecuteActions(GetID(), GetParentID());
+
+  CGUIControl::OnUnFocus();
 }

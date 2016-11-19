@@ -1,9 +1,8 @@
-#ifndef _ENCODERFFMPEG_H
-#define _ENCODERFFMPEG_H
+#pragma once
 
 /*
- *      Copyright (C) 2005-2013 Team XBMC
- *      http://xbmc.org
+ *      Copyright (C) 2005-2015 Team Kodi
+ *      http://kodi.tv
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -16,7 +15,7 @@
  *  GNU General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
+ *  along with Kodi; see the file COPYING.  If not, see
  *  <http://www.gnu.org/licenses/>.
  *
  */
@@ -26,7 +25,6 @@
 extern "C" {
 #include "libavformat/avformat.h"
 #include "libavcodec/avcodec.h"
-#include "libavutil/avutil.h"
 #include "libswresample/swresample.h"
 }
 
@@ -59,7 +57,6 @@ private:
   static int64_t    avio_seek_callback(void *opaque, int64_t offset, int whence);
   void              SetTag(const std::string &tag, const std::string &value);
 
-
   unsigned int      m_NeededFrames;
   unsigned int      m_NeededBytes;
   uint8_t          *m_Buffer;
@@ -75,4 +72,3 @@ private:
   bool WriteFrame();
 };
 
-#endif // _ENCODERFFMPEG_H

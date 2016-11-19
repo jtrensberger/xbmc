@@ -18,16 +18,17 @@
  *
  */
 
-/* TODO: gtest/gtest.h needs to come in before utils/RegExp.h.
+/** @todo gtest/gtest.h needs to come in before utils/RegExp.h.
  * Investigate why.
  */
 #include "gtest/gtest.h"
 
 #include "utils/RegExp.h"
 #include "utils/log.h"
-#include "utils/StdString.h"
 #include "filesystem/File.h"
 #include "filesystem/SpecialProtocol.h"
+#include "utils/StringUtils.h"
+#include "CompileInfo.h"
 
 TEST(TestRegExp, RegFind)
 {
@@ -146,12 +147,14 @@ protected:
 TEST_F(TestRegExpLog, DumpOvector)
 {
   CRegExp regex;
-  CStdString logfile, logstring;
+  std::string logfile, logstring;
   char buf[100];
   unsigned int bytesread;
   XFILE::CFile file;
 
-  logfile = CSpecialProtocol::TranslatePath("special://temp/") + "xbmc.log";
+  std::string appName = CCompileInfo::GetAppName();
+  StringUtils::ToLower(appName);
+  logfile = CSpecialProtocol::TranslatePath("special://temp/") + appName + ".log";
   EXPECT_TRUE(CLog::Init(CSpecialProtocol::TranslatePath("special://temp/").c_str()));
   EXPECT_TRUE(XFILE::CFile::Exists(logfile));
 

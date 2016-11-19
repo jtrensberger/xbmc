@@ -9,8 +9,8 @@
 #pragma once
 
 /*
- *      Copyright (C) 2005-2013 Team XBMC
- *      http://xbmc.org
+ *      Copyright (C) 2005-2013 Team Kodi
+ *      http://kodi.tv
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -156,7 +156,17 @@
 
 #define GUI_MSG_GET_FILENAME   48
 
+/*!
+ \brief The user interface is ready for usage
+ */
+#define GUI_MSG_UI_READY       49
+
 #define GUI_MSG_USER         1000
+
+/*!
+\brief Complete to get codingtable page
+*/
+#define GUI_MSG_CODINGTABLE_LOOKUP_COMPLETED 65000
 
 /*!
  \ingroup winmsg
@@ -327,10 +337,10 @@ do { \
 
 #include <string>
 #include <vector>
-#include <boost/shared_ptr.hpp>
+#include <memory>
 
 // forwards
-class CGUIListItem; typedef boost::shared_ptr<CGUIListItem> CGUIListItemPtr;
+class CGUIListItem; typedef std::shared_ptr<CGUIListItem> CGUIListItemPtr;
 class CFileItemList;
 
 /*!

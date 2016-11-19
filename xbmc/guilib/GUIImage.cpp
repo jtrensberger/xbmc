@@ -19,11 +19,9 @@
  */
 
 #include "GUIImage.h"
-#include "TextureManager.h"
 #include "utils/log.h"
-#include "utils/TimeUtils.h"
 
-using namespace std;
+#include <cassert>
 
 CGUIImage::CGUIImage(int parentID, int controlID, float posX, float posY, float width, float height, const CTextureInfo& texture)
     : CGUIControl(parentID, controlID, posX, posY, width, height)
@@ -118,11 +116,13 @@ void CGUIImage::Process(unsigned int currentTime, CDirtyRegionList &dirtyregions
     unsigned int frameTime = 0;
     if (m_lastRenderTime)
       frameTime = currentTime - m_lastRenderTime;
+    if (!frameTime)
+      frameTime = (unsigned int)(1000 / g_graphicsContext.GetFPS());
     m_lastRenderTime = currentTime;
 
     if (m_fadingTextures.size())  // have some fading images
     { // anything other than the last old texture needs to be faded out as per usual
-      for (vector<CFadingTexture *>::iterator i = m_fadingTextures.begin(); i != m_fadingTextures.end() - 1;)
+      for (std::vector<CFadingTexture *>::iterator i = m_fadingTextures.begin(); i != m_fadingTextures.end() - 1;)
       {
         if (!ProcessFading(*i, frameTime, currentTime))
           i = m_fadingTextures.erase(i);
@@ -174,7 +174,7 @@ void CGUIImage::Render()
 {
   if (!IsVisible()) return;
 
-  for (vector<CFadingTexture *>::iterator itr = m_fadingTextures.begin(); itr != m_fadingTextures.end(); ++itr)
+  for (std::vector<CFadingTexture *>::iterator itr = m_fadingTextures.begin(); itr != m_fadingTextures.end(); ++itr)
     (*itr)->m_texture->Render();
 
   m_texture.Render();
@@ -297,13 +297,13 @@ CRect CGUIImage::CalcRenderRegion() const
 {
   CRect region = m_texture.GetRenderRect();
 
-  for (vector<CFadingTexture *>::const_iterator itr = m_fadingTextures.begin(); itr != m_fadingTextures.end(); ++itr)
+  for (std::vector<CFadingTexture *>::const_iterator itr = m_fadingTextures.begin(); itr != m_fadingTextures.end(); ++itr)
     region.Union( (*itr)->m_texture->GetRenderRect() );
 
   return CGUIControl::CalcRenderRegion().Intersect(region);
 }
 
-const CStdString &CGUIImage::GetFileName() const
+const std::string &CGUIImage::GetFileName() const
 {
   return m_texture.GetFileName();
 }
@@ -320,7 +320,7 @@ void CGUIImage::SetCrossFade(unsigned int time)
     m_crossFadeTime = 1;
 }
 
-void CGUIImage::SetFileName(const CStdString& strFileName, bool setConstant, const bool useCache)
+void CGUIImage::SetFileName(const std::string& strFileName, bool setConstant, const bool useCache)
 {
   if (setConstant)
     m_info.SetLabel(strFileName, "", GetParentID());
@@ -331,7 +331,7 @@ void CGUIImage::SetFileName(const CStdString& strFileName, bool setConstant, con
   if (m_crossFadeTime)
   {
     // set filename on the next texture
-    if (m_currentTexture.Equals(strFileName))
+    if (m_currentTexture == strFileName)
       return; // nothing to do - we already have this image
 
     if (m_texture.ReadyToRender() || m_texture.GetFileName().empty())
@@ -341,7 +341,7 @@ void CGUIImage::SetFileName(const CStdString& strFileName, bool setConstant, con
     }
     m_currentFadeTime = 0;
   }
-  if (!m_currentTexture.Equals(strFileName))
+  if (m_currentTexture != strFileName)
   { // texture is changing - attempt to load it, and save the name in m_currentTexture.
     // we'll check whether it loaded or not in Render()
     m_currentTexture = strFileName;

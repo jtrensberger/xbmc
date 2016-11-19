@@ -31,6 +31,7 @@
 #include "GUIButtonControl.h"
 #include "utils/Stopwatch.h"
 #include "utils/StringValidation.h"
+#include "utils/Variant.h"
 
 /*!
  \ingroup controls
@@ -70,14 +71,12 @@ public:
   virtual void SetLabel2(const std::string &text);
   void SetHint(const CGUIInfoLabel& hint);
 
-  virtual CStdString GetLabel2() const;
-
-  void SetShowCursorAlways(bool always) { m_cursorShowAlways = always; }
+  virtual std::string GetLabel2() const;
 
   unsigned int GetCursorPosition() const;
   void SetCursorPosition(unsigned int iPosition);
 
-  void SetInputType(INPUT_TYPE type, int heading);
+  void SetInputType(INPUT_TYPE type, CVariant heading);
 
   void SetTextChangeActions(const CGUIAction& textChangeActions) { m_textChangeActions = textChangeActions; };
 
@@ -91,8 +90,9 @@ protected:
   virtual void ProcessText(unsigned int currentTime);
   virtual void RenderText();
   virtual CGUILabel::COLOR GetTextColor() const;
-  CStdStringW GetDisplayedText() const;
-  bool SetStyledText(const CStdStringW &text);
+  std::wstring GetDisplayedText() const;
+  std::string GetDescriptionByIndex(int index) const;
+  bool SetStyledText(const std::wstring &text);
   void RecalcLabelPosition();
   void ValidateCursor();
   void UpdateText(bool sendUpdate = true);
@@ -100,7 +100,7 @@ protected:
   void OnSMSCharacter(unsigned int key);
   void DefaultConstructor();  
 
-  virtual bool ValidateInput(const CStdStringW &data) const;
+  virtual bool ValidateInput(const std::wstring &data) const;
   void ValidateInput();
 
   /*! \brief Clear out the current text input if it's an MD5 password.
@@ -108,8 +108,8 @@ protected:
    */
   bool ClearMD5();
   
-  CStdStringW m_text2;
-  CStdString  m_text;
+  std::wstring m_text2;
+  std::string  m_text;
   CGUIInfoLabel m_hintInfo;
   float m_textOffset;
   float m_textWidth;
@@ -119,9 +119,8 @@ protected:
 
   unsigned int m_cursorPos;
   unsigned int m_cursorBlink;
-  bool         m_cursorShowAlways;
 
-  int m_inputHeading;
+  std::string m_inputHeading;
   INPUT_TYPE m_inputType;
   bool m_isMD5;
 

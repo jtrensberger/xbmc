@@ -1,3 +1,5 @@
+#pragma once
+
 /**********************************************************************
  * Copyright (c) 2004, Leo Seib, Hannover
  *
@@ -25,9 +27,6 @@
  * THE SOFTWARE.
  *
  **********************************************************************/
-
-#ifndef _SQLITEDATASET_H
-#define _SQLITEDATASET_H
 
 #include <stdio.h>
 #include "dataset.h"
@@ -148,7 +147,6 @@ or insert() operations default = false) */
   virtual int  exec (const std::string &sql);
   virtual const void* getExecRes();
 /* as open, but with our query exept Sql */
-  virtual bool query(const char *query);
   virtual bool query(const std::string &query);
 /* func. closes a query */
   virtual void close(void);
@@ -175,4 +173,4 @@ or insert() operations default = false) */
   virtual bool dropIndex(const char *table, const char *index);
 };
 } //namespace
-#endif
+

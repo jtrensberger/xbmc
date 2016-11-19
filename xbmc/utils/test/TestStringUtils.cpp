@@ -19,6 +19,7 @@
  */
 
 #include "utils/StringUtils.h"
+#include <algorithm>
 
 #include "gtest/gtest.h"
 
@@ -48,6 +49,39 @@ TEST(TestStringUtils, ToLower)
   
   std::string varstr = "TeSt";
   StringUtils::ToLower(varstr);
+  EXPECT_STREQ(refstr.c_str(), varstr.c_str());
+}
+
+TEST(TestStringUtils, ToCapitalize)
+{
+  std::string refstr = "Test";
+  std::string varstr = "test";
+  StringUtils::ToCapitalize(varstr);
+  EXPECT_STREQ(refstr.c_str(), varstr.c_str());
+
+  refstr = "Just A Test";
+  varstr = "just a test";
+  StringUtils::ToCapitalize(varstr);
+  EXPECT_STREQ(refstr.c_str(), varstr.c_str());
+
+  refstr = "Test -1;2:3, String For Case";
+  varstr = "test -1;2:3, string for Case";
+  StringUtils::ToCapitalize(varstr);
+  EXPECT_STREQ(refstr.c_str(), varstr.c_str());
+
+  refstr = "  JuST Another\t\tTEst:\nWoRKs ";
+  varstr = "  juST another\t\ttEst:\nwoRKs ";
+  StringUtils::ToCapitalize(varstr);
+  EXPECT_STREQ(refstr.c_str(), varstr.c_str());
+
+  refstr = "N.Y.P.D";
+  varstr = "n.y.p.d";
+  StringUtils::ToCapitalize(varstr);
+  EXPECT_STREQ(refstr.c_str(), varstr.c_str());
+
+  refstr = "N-Y-P-D";
+  varstr = "n-y-p-d";
+  StringUtils::ToCapitalize(varstr);
   EXPECT_STREQ(refstr.c_str(), varstr.c_str());
 }
 
@@ -201,7 +235,7 @@ TEST(TestStringUtils, EndsWith)
 
 TEST(TestStringUtils, Join)
 {
-  CStdString refstr, varstr;
+  std::string refstr, varstr;
   std::vector<std::string> strarray;
 
   strarray.push_back("a");
@@ -297,7 +331,7 @@ TEST(TestStringUtils, TimeStringToSeconds)
 
 TEST(TestStringUtils, RemoveCRLF)
 {
-  CStdString refstr, varstr;
+  std::string refstr, varstr;
 
   refstr = "test\r\nstring\nblah blah";
   varstr = "test\r\nstring\nblah blah\n";
@@ -316,7 +350,7 @@ TEST(TestStringUtils, utf8_strlen)
 
 TEST(TestStringUtils, SecondsToTimeString)
 {
-  CStdString ref, var;
+  std::string ref, var;
 
   ref = "21:30:55";
   var = StringUtils::SecondsToTimeString(77455);
@@ -355,7 +389,7 @@ TEST(TestStringUtils, IsInteger)
 
 TEST(TestStringUtils, SizeToString)
 {
-  CStdString ref, var;
+  std::string ref, var;
 
   ref = "2.00 GB";
   var = StringUtils::SizeToString(2147483647);
@@ -364,7 +398,7 @@ TEST(TestStringUtils, SizeToString)
 
 TEST(TestStringUtils, EmptyString)
 {
-  EXPECT_STREQ("", StringUtils::EmptyString.c_str());
+  EXPECT_STREQ("", StringUtils::Empty.c_str());
 }
 
 TEST(TestStringUtils, FindWords)
@@ -477,4 +511,40 @@ TEST(TestStringUtils, Paramify)
 
   std::string result = StringUtils::Paramify(input);
   EXPECT_STREQ(ref, result.c_str());
+}
+
+TEST(TestStringUtils, sortstringbyname)
+{
+  std::vector<std::string> strarray;
+  strarray.push_back("B");
+  strarray.push_back("c");
+  strarray.push_back("a");
+  std::sort(strarray.begin(), strarray.end(), sortstringbyname());
+
+  EXPECT_STREQ("a", strarray[0].c_str());
+  EXPECT_STREQ("B", strarray[1].c_str());
+  EXPECT_STREQ("c", strarray[2].c_str());
+}
+
+TEST(TestStringUtils, FileSizeFormat)
+{
+  EXPECT_STREQ("0B", StringUtils::FormatFileSize(0).c_str());
+
+  EXPECT_STREQ("999B", StringUtils::FormatFileSize(999).c_str());
+  EXPECT_STREQ("0.98kB", StringUtils::FormatFileSize(1000).c_str());
+
+  EXPECT_STREQ("1.00kB", StringUtils::FormatFileSize(1024).c_str());
+  EXPECT_STREQ("9.99kB", StringUtils::FormatFileSize(10229).c_str());
+
+  EXPECT_STREQ("10.1kB", StringUtils::FormatFileSize(10387).c_str());
+  EXPECT_STREQ("99.9kB", StringUtils::FormatFileSize(102297).c_str());
+
+  EXPECT_STREQ("100kB", StringUtils::FormatFileSize(102400).c_str());
+  EXPECT_STREQ("999kB", StringUtils::FormatFileSize(1023431).c_str());
+
+  EXPECT_STREQ("0.98MB", StringUtils::FormatFileSize(1023897).c_str());
+  EXPECT_STREQ("0.98MB", StringUtils::FormatFileSize(1024000).c_str());
+
+  //Last unit should overflow the 3 digit limit
+  EXPECT_STREQ("5432PB", StringUtils::FormatFileSize(6115888293969133568).c_str());
 }

@@ -27,9 +27,9 @@
 #include "stdint.h"
 
 #include "EncoderFFmpeg.h"
-#include "filesystem/File.h"
 #include "utils/log.h"
 #include "settings/Settings.h"
+#include "utils/SystemInfo.h"
 #include "utils/URIUtils.h"
 #include "addons/AddonManager.h"
 
@@ -88,7 +88,7 @@ bool CEncoderFFmpeg::Init(audioenc_callbacks &callbacks)
   }
 
   AddonPtr addon;
-  CAddonMgr::Get().GetAddon(CSettings::Get().GetString("audiocds.encoder"), addon);
+  CAddonMgr::GetInstance().GetAddon(CSettings::GetInstance().GetString(CSettings::SETTING_AUDIOCDS_ENCODER), addon);
   if (addon)
   {
     m_Format->bit_rate = (128+32*strtol(addon->GetSetting("bitrate").c_str(), NULL, 10))*1000;
@@ -159,8 +159,8 @@ bool CEncoderFFmpeg::Init(audioenc_callbacks &callbacks)
   if(!m_BufferFrame || !m_Buffer)
   {
     CLog::Log(LOGERROR, "CEncoderFFmpeg::Init - Failed to allocate necessary buffers");
-    if(m_BufferFrame) av_frame_free(&m_BufferFrame);
-    if(m_Buffer) av_freep(&m_Buffer);
+    av_frame_free(&m_BufferFrame);
+    av_freep(&m_Buffer);
     av_freep(&m_Stream);
     av_freep(&m_Format->pb);
     av_freep(&m_Format);
@@ -196,9 +196,9 @@ bool CEncoderFFmpeg::Init(audioenc_callbacks &callbacks)
     if(!m_ResampledBuffer || !m_ResampledFrame)
     {
       CLog::Log(LOGERROR, "CEncoderFFmpeg::Init - Failed to allocate a frame for resampling");
-      if (m_ResampledFrame)  av_frame_free(&m_ResampledFrame);
-      if (m_ResampledBuffer) av_freep(&m_ResampledBuffer);
-      if (m_SwrCtx)          swr_free(&m_SwrCtx);
+      av_frame_free(&m_ResampledFrame);
+      av_freep(&m_ResampledBuffer);
+      swr_free(&m_SwrCtx);
       av_frame_free(&m_BufferFrame);
       av_freep(&m_Buffer);
       av_freep(&m_Stream);
@@ -218,15 +218,15 @@ bool CEncoderFFmpeg::Init(audioenc_callbacks &callbacks)
   SetTag("genre"       , m_strGenre);
   SetTag("title"       , m_strTitle);
   SetTag("track"       , m_strTrack);
-  SetTag("encoder"     , "XBMC FFmpeg Encoder");
+  SetTag("encoder"     , CSysInfo::GetAppName() + " FFmpeg Encoder");
 
   /* write the header */
   if (avformat_write_header(m_Format, NULL) != 0)
   {
     CLog::Log(LOGERROR, "CEncoderFFmpeg::Init - Failed to write the header");
-    if (m_ResampledFrame ) av_frame_free(&m_ResampledFrame);
-    if (m_ResampledBuffer) av_freep(&m_ResampledBuffer);
-    if (m_SwrCtx)          swr_free(&m_SwrCtx);
+    av_frame_free(&m_ResampledFrame);
+    av_freep(&m_ResampledBuffer);
+    swr_free(&m_SwrCtx);
     av_frame_free(&m_BufferFrame);
     av_freep(&m_Buffer);
     av_freep(&m_Stream);
@@ -316,16 +316,13 @@ bool CEncoderFFmpeg::WriteFrame()
 
   if (got_output)
   {
-    if (m_CodecCtx->coded_frame && m_CodecCtx->coded_frame->pts != AV_NOPTS_VALUE)
-      m_Pkt.pts = av_rescale_q(m_CodecCtx->coded_frame->pts, m_Stream->time_base, m_CodecCtx->time_base);
-
     if (av_write_frame(m_Format, &m_Pkt) < 0) {
       CLog::Log(LOGERROR, "CEncoderFFMmpeg::WriteFrame - Failed to write the frame data");
       return false;
     }
   }
 
-  av_free_packet(&m_Pkt);
+  av_packet_unref(&m_Pkt);
 
   return true;
 }
@@ -347,9 +344,9 @@ bool CEncoderFFmpeg::Close()
     av_freep(&m_Buffer);
     av_frame_free(&m_BufferFrame);
 
-    if (m_SwrCtx)          swr_free(&m_SwrCtx);
-    if (m_ResampledFrame ) av_frame_free(&m_ResampledFrame);
-    if (m_ResampledBuffer) av_freep(&m_ResampledBuffer);
+    swr_free(&m_SwrCtx);
+    av_frame_free(&m_ResampledFrame);
+    av_freep(&m_ResampledBuffer);
     m_NeedConversion = false;
 
     WriteFrame();

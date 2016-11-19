@@ -19,8 +19,12 @@
  *
  */
 
+#include <map>
+#include <string>
+#include <vector>
+
 #include "dialogs/GUIDialogBoxBase.h"
-#include "addons/Addon.h"
+#include "IAddon.h"
 
 class CGUIDialogAddonSettings : public CGUIDialogBoxBase
 {
@@ -81,7 +85,6 @@ private:
 
   ADDON::AddonPtr m_addon;
   std::map<std::string,std::string> m_buttonValues;
-  bool m_changed;
   bool m_saveToDisk; // whether the addon settings should be saved to disk or just stored locally in the addon
 
   unsigned int m_currentSection;

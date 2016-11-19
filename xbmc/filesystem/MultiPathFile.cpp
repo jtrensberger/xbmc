@@ -24,24 +24,20 @@
 #include "URL.h"
 
 using namespace XFILE;
-using namespace std;
-using namespace XFILE;
 
 CMultiPathFile::CMultiPathFile(void)
-{
-}
+  : COverrideFile(false)
+{ }
 
 CMultiPathFile::~CMultiPathFile(void)
-{
-  Close();
-}
+{ }
 
 bool CMultiPathFile::Open(const CURL& url)
 {
   // grab the filename off the url
   std::string path, fileName;
   URIUtils::Split(url.Get(), path, fileName);
-  vector<std::string> vecPaths;
+  std::vector<std::string> vecPaths;
   if (!CMultiPathDirectory::GetPaths(path, vecPaths))
     return false;
 
@@ -60,7 +56,7 @@ bool CMultiPathFile::Exists(const CURL& url)
   // grab the filename off the url
   std::string path, fileName;
   URIUtils::Split(url.Get(), path, fileName);
-  vector<std::string> vecPaths;
+  std::vector<std::string> vecPaths;
   if (!CMultiPathDirectory::GetPaths(path, vecPaths))
     return false;
 
@@ -79,7 +75,7 @@ int CMultiPathFile::Stat(const CURL& url, struct __stat64* buffer)
   // grab the filename off the url
   std::string path, fileName;
   URIUtils::Split(url.Get(), path, fileName);
-  vector<std::string> vecPaths;
+  std::vector<std::string> vecPaths;
   if (!CMultiPathDirectory::GetPaths(path, vecPaths))
     return false;
 
@@ -94,27 +90,7 @@ int CMultiPathFile::Stat(const CURL& url, struct __stat64* buffer)
   return -1;
 }
 
-ssize_t CMultiPathFile::Read(void* lpBuf, size_t uiBufSize)
+std::string CMultiPathFile::TranslatePath(const CURL& url)
 {
-  return m_file.Read(lpBuf, uiBufSize);
-}
-
-int64_t CMultiPathFile::Seek(int64_t iFilePosition, int iWhence /*=SEEK_SET*/)
-{
-  return m_file.Seek(iFilePosition, iWhence);
-}
-
-void CMultiPathFile::Close()
-{
-  m_file.Close();
-}
-
-int64_t CMultiPathFile::GetPosition()
-{
-  return m_file.GetPosition();
-}
-
-int64_t CMultiPathFile::GetLength()
-{
-  return m_file.GetLength();
+  return url.Get();
 }

@@ -23,6 +23,7 @@
 #include "filesystem/File.h"
 #include "filesystem/SpecialProtocol.h"
 #include "utils/StringUtils.h"
+#include "utils/URIUtils.h"
 
 #ifdef TARGET_WINDOWS
 #include <windows.h>
@@ -43,7 +44,6 @@ public:
   bool Create(const std::string &suffix)
   {
     char tmp[MAX_PATH];
-    int fd;
 
     m_ptempFileDirectory = CSpecialProtocol::TranslatePath("special://temp/");
     m_ptempFilePath = m_ptempFileDirectory + "xbmctempfileXXXXXX";
@@ -64,6 +64,7 @@ public:
     }
     m_ptempFilePath = tmp;
 #else
+    int fd;
     if ((fd = mkstemps(tmp, suffix.length())) < 0)
     {
       m_ptempFilePath = "";
@@ -107,19 +108,19 @@ CXBMCTestUtils &CXBMCTestUtils::Instance()
 
 std::string CXBMCTestUtils::ReferenceFilePath(const std::string& path)
 {
-  return CSpecialProtocol::TranslatePath("special://xbmc") + path;
+  return CSpecialProtocol::TranslatePath(URIUtils::AddFileToFolder("special://xbmc", path));
 }
 
 bool CXBMCTestUtils::SetReferenceFileBasePath()
 {
-  std::string xbmcPath;
-  CUtil::GetHomePath(xbmcPath);
+  std::string xbmcPath = CUtil::GetHomePath();
   if (xbmcPath.empty())
     return false;
 
-  /* Set xbmc path and xbmcbin path */
+  /* Set xbmc, xbmcbin and home path */
   CSpecialProtocol::SetXBMCPath(xbmcPath);
   CSpecialProtocol::SetXBMCBinPath(xbmcPath);
+  CSpecialProtocol::SetHomePath(URIUtils::AddFileToFolder(xbmcPath, "portable_data"));
 
   return true;
 }
@@ -289,7 +290,7 @@ void CXBMCTestUtils::ParseArgs(int argc, char **argv)
       arg = argv[++i];
       std::vector<std::string> urls = StringUtils::Split(arg, ",");
       std::vector<std::string>::iterator it;
-      for (it = urls.begin(); it < urls.end(); it++)
+      for (it = urls.begin(); it < urls.end(); ++it)
         TestFileFactoryReadUrls.push_back(*it);
     }
     else if (arg == "--add-testfilefactory-writeurl")
@@ -301,7 +302,7 @@ void CXBMCTestUtils::ParseArgs(int argc, char **argv)
       arg = argv[++i];
       std::vector<std::string> urls = StringUtils::Split(arg, ",");
       std::vector<std::string>::iterator it;
-      for (it = urls.begin(); it < urls.end(); it++)
+      for (it = urls.begin(); it < urls.end(); ++it)
         TestFileFactoryWriteUrls.push_back(*it);
     }
     else if (arg == "--set-testfilefactory-writeinputfile")
@@ -317,7 +318,7 @@ void CXBMCTestUtils::ParseArgs(int argc, char **argv)
       arg = argv[++i];
       std::vector<std::string> urls = StringUtils::Split(arg, ",");
       std::vector<std::string>::iterator it;
-      for (it = urls.begin(); it < urls.end(); it++)
+      for (it = urls.begin(); it < urls.end(); ++it)
         AdvancedSettingsFiles.push_back(*it);
     }
     else if (arg == "--add-guisettings-file")
@@ -329,7 +330,7 @@ void CXBMCTestUtils::ParseArgs(int argc, char **argv)
       arg = argv[++i];
       std::vector<std::string> urls = StringUtils::Split(arg, ",");
       std::vector<std::string>::iterator it;
-      for (it = urls.begin(); it < urls.end(); it++)
+      for (it = urls.begin(); it < urls.end(); ++it)
         GUISettingsFiles.push_back(*it);
     }
     else if (arg == "--set-probability")

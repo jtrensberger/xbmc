@@ -28,20 +28,27 @@ enum AML_DEVICE_TYPE
   AML_DEVICE_TYPE_M1,
   AML_DEVICE_TYPE_M3,
   AML_DEVICE_TYPE_M6,
-  AML_DEVICE_TYPE_M8
+  AML_DEVICE_TYPE_M8,   // S802
+  AML_DEVICE_TYPE_M8B,  // S805
+  AML_DEVICE_TYPE_M8M2  // S812
 };
 
-int aml_set_sysfs_str(const char *path, const char *val);
-int aml_get_sysfs_str(const char *path, char *valstr, const int size);
-int aml_set_sysfs_int(const char *path, const int val);
-int aml_get_sysfs_int(const char *path);
+enum AML_DISPLAY_AXIS_PARAM
+{
+  AML_DISPLAY_AXIS_PARAM_X = 0,
+  AML_DISPLAY_AXIS_PARAM_Y,
+  AML_DISPLAY_AXIS_PARAM_WIDTH,
+  AML_DISPLAY_AXIS_PARAM_HEIGHT
+};
 
 bool aml_present();
-void aml_permissions();
+bool aml_permissions();
 bool aml_hw3d_present();
 bool aml_wired_present();
-enum AML_DEVICE_TYPE aml_get_device_type();
-void aml_cpufreq_min(bool limit);
-void aml_cpufreq_max(bool limit);
+bool aml_support_hevc();
+bool aml_support_hevc_4k2k();
+bool aml_support_hevc_10bit();
+bool aml_support_h264_4k2k();
 void aml_set_audio_passthrough(bool passthrough);
+bool aml_IsHdmiConnected();
 bool aml_mode_to_resolution(const char *mode, RESOLUTION_INFO *res);

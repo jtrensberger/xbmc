@@ -59,6 +59,12 @@ typedef enum {
   FieldVirtualFolder,
   FieldRandom,
   FieldDateTaken,
+  FieldAudioCount,
+  FieldSubtitleCount,
+
+  FieldInstallDate,
+  FieldLastUpdated,
+  FieldLastUsed,
 
   // fields retrievable from the database
   FieldId,
@@ -78,6 +84,7 @@ typedef enum {
   FieldInProgress,
   FieldRating,
   FieldComment,
+  FieldRole,
   FieldDateAdded,
   FieldTvShowTitle,
   FieldPlot,
@@ -107,6 +114,7 @@ typedef enum {
   FieldStyles,
   FieldAlbumType,
   FieldMusicLabel,
+  FieldCompilation,
   FieldTrailer,
   FieldVideoResolution,
   FieldVideoAspectRatio,
@@ -126,6 +134,8 @@ typedef enum {
   FieldDisbanded,
   FieldDied,
   FieldStereoMode,
+  FieldUserRating,
+  FieldRelevance, // Used for actors' appearences
   FieldMax
 } Field;
 
@@ -152,7 +162,7 @@ public:
   static bool GetSelectFields(const Fields &fields, const MediaType &mediaType, FieldList &selectFields);
   
   static bool GetFieldValue(const dbiplus::field_value &fieldValue, CVariant &variantValue);
-  static bool GetDatabaseResults(const MediaType &mediaType, const FieldList &fields, const std::auto_ptr<dbiplus::Dataset> &dataset, DatabaseResults &results);
+  static bool GetDatabaseResults(const MediaType &mediaType, const FieldList &fields, const std::unique_ptr<dbiplus::Dataset> &dataset, DatabaseResults &results);
 
   static std::string BuildLimitClause(int end, int start = 0);
 

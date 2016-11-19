@@ -1,5 +1,8 @@
 -include ../../Makefile.include
 
+VERSION.TXT := $(CORE_SOURCE_DIR)/version.txt
+APP_NAME=$(shell awk '/APP_NAME/ {print tolower($$2)}' $(VERSION.TXT))
+
 SOURCE=../../../../
 
 export CXXFLAGS+=-O3
@@ -7,18 +10,27 @@ export CFLAGS+=-O3
 
 # configuration settings
 CONFIGURE = cp -f $(CONFIG_SUB) $(CONFIG_GUESS) build-aux/ ;\
-  ./configure --prefix=$(PREFIX)
+  ./configure --prefix=$(PREFIX) $(DEBUG)
 
 ifeq ($(OS),android)
-CONFIGURE += --enable-codec=libstagefright,amcodec
+CONFIGURE += --disable-libcec
+endif
+
+ifeq ($(Configuration),Release)
+DEBUG = --enable-debug=no
 endif
 
 CONFIGURE += $(CONFIG_EXTRA)
 
-all: $(SOURCE)/libxbmc.so
+all: $(SOURCE)/lib$(APP_NAME).so
 
+release: DEBUG=--enable-debug=no
+release: $(SOURCE)/lib$(APP_NAME).so
 
-$(SOURCE)/libxbmc.so:
+debug: DEBUG=--enable-debug=yes
+debug: $(SOURCE)/lib$(APP_NAME).so
+
+$(SOURCE)/lib$(APP_NAME).so:
 	cd $(SOURCE); BOOTSTRAP_FROM_DEPENDS=yes ./bootstrap
 	cd $(SOURCE); $(CONFIGURE)
 

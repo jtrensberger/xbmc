@@ -22,13 +22,11 @@
  */
 #include "UDFFile.h"
 #include "URL.h"
-#include "Util.h"
 
 #include <sys/stat.h>
 #include <errno.h>
 #include <limits.h>
 
-using namespace std;
 using namespace XFILE;
 
 //////////////////////////////////////////////////////////////////////
@@ -36,8 +34,9 @@ using namespace XFILE;
 //////////////////////////////////////////////////////////////////////
 //*********************************************************************************************
 CUDFFile::CUDFFile()
+  : m_bOpened(false)
+  , m_hFile(INVALID_HANDLE_VALUE)
 {
-  m_bOpened = false;
 }
 
 //*********************************************************************************************

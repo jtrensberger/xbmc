@@ -23,10 +23,9 @@
 
 #include <dbus/dbus.h>
 #include <climits>
+#include <algorithm>
 
 #include "utils/log.h"
-
-using namespace std;
 
 /* This implements the code to exclusively acquire                  *
  * a device on the system describe at:                              *
@@ -160,7 +159,7 @@ bool CDBusReserve::ReleaseDevice(const std::string& device)
   DBusError error;
   dbus_error_init (&error);
 
-  vector<std::string>::iterator it = find(m_devs.begin(), m_devs.end(), device);
+  std::vector<std::string>::iterator it = find(m_devs.begin(), m_devs.end(), device);
   if(it == m_devs.end())
   {
     CLog::Log(LOGDEBUG, "CDBusReserve::ReleaseDevice(%s): device wasn't aquired here", device.c_str());

@@ -19,11 +19,12 @@
  */
 
 #include "GUIWindowDebugInfo.h"
-#include "input/MouseStat.h"
 #include "settings/AdvancedSettings.h"
 #include "addons/Skin.h"
 #include "utils/CPUInfo.h"
 #include "utils/log.h"
+#include "CompileInfo.h"
+#include "filesystem/SpecialProtocol.h"
 #include "input/ButtonTranslator.h"
 #include "guilib/GUIControlFactory.h"
 #include "guilib/GUIFontManager.h"
@@ -34,14 +35,16 @@
 #include "utils/Variant.h"
 #include "utils/StringUtils.h"
 
-#include <climits>
+#ifdef TARGET_POSIX
+#include "linux/XMemUtils.h"
+#endif
 
 CGUIWindowDebugInfo::CGUIWindowDebugInfo(void)
-    : CGUIDialog(WINDOW_DEBUG_INFO, "")
+  : CGUIDialog(WINDOW_DEBUG_INFO, "", DialogModalityType::MODELESS)
 {
   m_needsScaling = false;
-  m_layout = NULL;
-  m_renderOrder = INT_MAX - 2;
+  m_layout = nullptr;
+  m_renderOrder = RENDER_ORDER_WINDOW_DEBUG;
 }
 
 CGUIWindowDebugInfo::~CGUIWindowDebugInfo(void)
@@ -51,7 +54,7 @@ CGUIWindowDebugInfo::~CGUIWindowDebugInfo(void)
 void CGUIWindowDebugInfo::UpdateVisibility()
 {
   if (LOG_LEVEL_DEBUG_FREEMEM <= g_advancedSettings.m_logLevel || g_SkinInfo->IsDebugging())
-    Show();
+    Open();
   else
     Close();
 }
@@ -61,7 +64,7 @@ bool CGUIWindowDebugInfo::OnMessage(CGUIMessage &message)
   if (message.GetMessage() == GUI_MSG_WINDOW_DEINIT)
   {
     delete m_layout;
-    m_layout = NULL;
+    m_layout = nullptr;
   }
   return CGUIDialog::OnMessage(message);
 }
@@ -74,8 +77,8 @@ void CGUIWindowDebugInfo::Process(unsigned int currentTime, CDirtyRegionList &di
 
   static int yShift = 20;
   static int xShift = 40;
-  static unsigned int lastShift = time(NULL);
-  time_t now = time(NULL);
+  static unsigned int lastShift = time(nullptr);
+  time_t now = time(nullptr);
   if (now - lastShift > 10)
   {
     yShift *= -1;
@@ -95,21 +98,29 @@ void CGUIWindowDebugInfo::Process(unsigned int currentTime, CDirtyRegionList &di
   if (!m_layout)
     return;
 
-  CStdString info;
+  std::string info;
   if (LOG_LEVEL_DEBUG_FREEMEM <= g_advancedSettings.m_logLevel)
   {
     MEMORYSTATUSEX stat;
     stat.dwLength = sizeof(MEMORYSTATUSEX);
     GlobalMemoryStatusEx(&stat);
-    CStdString profiling = CGUIControlProfiler::IsRunning() ? " (profiling)" : "";
-    CStdString strCores = g_cpuInfo.GetCoresUsageString();
+    std::string profiling = CGUIControlProfiler::IsRunning() ? " (profiling)" : "";
+    std::string strCores = g_cpuInfo.GetCoresUsageString();
+    std::string lcAppName = CCompileInfo::GetAppName();
+    StringUtils::ToLower(lcAppName);
 #if !defined(TARGET_POSIX)
-    info = StringUtils::Format("LOG: %sxbmc.log\nMEM: %" PRIu64"/%" PRIu64" KB - FPS: %2.1f fps\nCPU: %s%s", g_advancedSettings.m_logFolder.c_str(),
+    info = StringUtils::Format("LOG: %s%s.log\nMEM: %" PRIu64"/%" PRIu64" KB - FPS: %2.1f fps\nCPU: %s%s", CSpecialProtocol::TranslatePath("special://logpath").c_str(), lcAppName.c_str(),
                                stat.ullAvailPhys/1024, stat.ullTotalPhys/1024, g_infoManager.GetFPS(), strCores.c_str(), profiling.c_str());
 #else
     double dCPU = m_resourceCounter.GetCPUUsage();
-    info = StringUtils::Format("LOG: %sxbmc.log\nMEM: %" PRIu64"/%" PRIu64" KB - FPS: %2.1f fps\nCPU: %s (CPU-XBMC %4.2f%%%s)", g_advancedSettings.m_logFolder.c_str(),
-                               stat.ullAvailPhys/1024, stat.ullTotalPhys/1024, g_infoManager.GetFPS(), strCores.c_str(), dCPU, profiling.c_str());
+    std::string ucAppName = lcAppName;
+    StringUtils::ToUpper(ucAppName);
+    info = StringUtils::Format("LOG: %s%s.log\n" 
+                                "MEM: %" PRIu64"/%" PRIu64" KB - FPS: %2.1f fps\n"
+                                "CPU: %s (CPU-%s %4.2f%%%s)",
+                                CSpecialProtocol::TranslatePath("special://logpath").c_str(), lcAppName.c_str(),
+                                stat.ullAvailPhys/1024, stat.ullTotalPhys/1024, g_infoManager.GetFPS(),
+                                strCores.c_str(), ucAppName.c_str(), dCPU, profiling.c_str());
 #endif
   }
 
@@ -125,19 +136,19 @@ void CGUIWindowDebugInfo::Process(unsigned int currentTime, CDirtyRegionList &di
       point = CPoint(pointer->GetXPosition(), pointer->GetYPosition());
     if (window)
     {
-      CStdString windowName = CButtonTranslator::TranslateWindow(window->GetID());
+      std::string windowName = CButtonTranslator::TranslateWindow(window->GetID());
       if (!windowName.empty())
-        windowName += " (" + CStdString(window->GetProperty("xmlfile").asString()) + ")";
+        windowName += " (" + std::string(window->GetProperty("xmlfile").asString()) + ")";
       else
         windowName = window->GetProperty("xmlfile").asString();
-      info += "Window: " + windowName + "  ";
+      info += "Window: " + windowName + "\n";
       // transform the mouse coordinates to this window's coordinates
       g_graphicsContext.SetScalingResolution(window->GetCoordsRes(), true);
       point.x *= g_graphicsContext.GetGUIScaleX();
       point.y *= g_graphicsContext.GetGUIScaleY();
       g_graphicsContext.SetRenderingResolution(g_graphicsContext.GetResInfo(), false);
     }
-    info += StringUtils::Format("Mouse: (%d,%d)  ", (int)point.x, (int)point.y);
+    info += StringUtils::Format("Mouse: (%d,%d)  ", static_cast<int>(point.x), static_cast<int>(point.y));
     if (window)
     {
       CGUIControl *control = window->GetFocusedControl();

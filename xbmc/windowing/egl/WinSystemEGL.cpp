@@ -29,6 +29,12 @@
 #include "settings/AdvancedSettings.h"
 #include "settings/Settings.h"
 #include "settings/DisplaySettings.h"
+#include "guilib/DispResource.h"
+#include "threads/SingleLock.h"
+#ifdef HAS_IMXVPU
+// This has to go into another header file
+#include "cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecIMX.h"
+#endif
 #include "utils/log.h"
 #include "EGLWrapper.h"
 #include "EGLQuirks.h"
@@ -46,9 +52,11 @@ CWinSystemEGL::CWinSystemEGL() : CWinSystemBase()
   m_surface           = EGL_NO_SURFACE;
   m_context           = EGL_NO_CONTEXT;
   m_config            = NULL;
+  m_stereo_mode       = RENDER_STEREO_MODE_OFF;
 
   m_egl               = NULL;
   m_iVSyncMode        = 0;
+  m_delayDispReset    = false;
 }
 
 CWinSystemEGL::~CWinSystemEGL()
@@ -149,6 +157,18 @@ bool CWinSystemEGL::CreateWindow(RESOLUTION_INFO &res)
   if(m_egl)
     m_egl->SetNativeResolution(res);
 
+  int quirks;
+  m_egl->GetQuirks(&quirks);
+  if (quirks & EGL_QUIRK_RECREATE_DISPLAY_ON_CREATE_WINDOW)
+  {
+    if (m_context != EGL_NO_CONTEXT)
+      if (!m_egl->InitDisplay(&m_display))
+      {
+        CLog::Log(LOGERROR, "%s: Could not reinit display",__FUNCTION__);
+        return false;
+      }
+  }
+
   if (!m_egl->CreateSurface(m_display, m_config, &m_surface))
   {
     CLog::Log(LOGNOTICE, "%s: Could not create a surface. Trying with a fresh Native Window.",__FUNCTION__);
@@ -166,20 +186,13 @@ bool CWinSystemEGL::CreateWindow(RESOLUTION_INFO &res)
     }
   }
 
-  /* The intel driver on wayland is broken and always returns a surface
-   * size of -1, -1. Work around it for now */
-  if (m_egl->TrustSurfaceSize())
+  int width = 0, height = 0;
+  if (!m_egl->GetSurfaceSize(m_display, m_surface, &width, &height))
   {
-    int width = 0, height = 0;
-    if (!m_egl->GetSurfaceSize(m_display, m_surface, &width, &height))
-    {
-      CLog::Log(LOGERROR, "%s: Surface is invalid",__FUNCTION__);
-      return false;
-    }
-    CLog::Log(LOGDEBUG, "%s: Created surface of size %ix%i",__FUNCTION__, width, height);
+    CLog::Log(LOGERROR, "%s: Surface is invalid",__FUNCTION__);
+    return false;
   }
-  else
-    CLog::Log(LOGDEBUG, "%s: Cannot reliably get surface size with this backend",__FUNCTION__);
+  CLog::Log(LOGDEBUG, "%s: Created surface of size %ix%i",__FUNCTION__, width, height);
 
   EGLint contextAttrs[] =
   {
@@ -208,6 +221,7 @@ bool CWinSystemEGL::CreateWindow(RESOLUTION_INFO &res)
     return false;
   }
 
+
   // for the non-trivial dirty region modes, we need the EGL buffer to be preserved across updates
   if (g_advancedSettings.m_guiAlgorithmDirtyRegions == DIRTYREGION_SOLVER_COST_REDUCTION ||
       g_advancedSettings.m_guiAlgorithmDirtyRegions == DIRTYREGION_SOLVER_UNION)
@@ -229,7 +243,9 @@ bool CWinSystemEGL::DestroyWindowSystem()
   DestroyWindow();
 
   if (m_context != EGL_NO_CONTEXT)
+  {
     m_egl->DestroyContext(m_display, m_context);
+  }
   m_context = EGL_NO_CONTEXT;
 
   if (m_display != EGL_NO_DISPLAY)
@@ -244,15 +260,17 @@ bool CWinSystemEGL::DestroyWindowSystem()
   delete m_egl;
   m_egl = NULL;
 
+  CWinSystemBase::DestroyWindowSystem();
   return true;
 }
 
-bool CWinSystemEGL::CreateNewWindow(const CStdString& name, bool fullScreen, RESOLUTION_INFO& res, PHANDLE_EVENT_FUNC userFunction)
+bool CWinSystemEGL::CreateNewWindow(const std::string& name, bool fullScreen, RESOLUTION_INFO& res, PHANDLE_EVENT_FUNC userFunction)
 {
   RESOLUTION_INFO current_resolution;
   current_resolution.iWidth = current_resolution.iHeight = 0;
+  RENDER_STEREO_MODE stereo_mode = g_graphicsContext.GetStereoMode();
 
-  m_nWidth        = res.iWidth;    
+  m_nWidth        = res.iWidth;
   m_nHeight       = res.iHeight;
   m_displayWidth  = res.iScreenWidth;
   m_displayHeight = res.iScreenHeight;
@@ -262,12 +280,27 @@ bool CWinSystemEGL::CreateNewWindow(const CStdString& name, bool fullScreen, RES
     current_resolution.iWidth == res.iWidth && current_resolution.iHeight == res.iHeight &&
     current_resolution.iScreenWidth == res.iScreenWidth && current_resolution.iScreenHeight == res.iScreenHeight &&
     m_bFullScreen == fullScreen && current_resolution.fRefreshRate == res.fRefreshRate &&
-    (current_resolution.dwFlags & D3DPRESENTFLAG_MODEMASK) == (res.dwFlags & D3DPRESENTFLAG_MODEMASK))
+    (current_resolution.dwFlags & D3DPRESENTFLAG_MODEMASK) == (res.dwFlags & D3DPRESENTFLAG_MODEMASK) &&
+    m_stereo_mode == stereo_mode)
   {
     CLog::Log(LOGDEBUG, "CWinSystemEGL::CreateNewWindow: No need to create a new window");
     return true;
   }
 
+  int delay = CSettings::GetInstance().GetInt("videoscreen.delayrefreshchange");
+  if (delay > 0)
+  {
+    m_delayDispReset = true;
+    m_dispResetTimer.Set(delay * 100);
+  }
+
+  {
+    CSingleLock lock(m_resourceSection);
+    for (std::vector<IDispResource *>::iterator i = m_resources.begin(); i != m_resources.end(); ++i)
+      (*i)->OnLostDisplay();
+  }
+
+  m_stereo_mode = stereo_mode;
   m_bFullScreen   = fullScreen;
   // Destroy any existing window
   if (m_surface != EGL_NO_SURFACE)
@@ -280,8 +313,16 @@ bool CWinSystemEGL::CreateNewWindow(const CStdString& name, bool fullScreen, RES
     CLog::Log(LOGERROR, "%s: Could not create new window",__FUNCTION__);
     return false;
   }
-  Show();
 
+  if (!m_delayDispReset)
+  {
+    CSingleLock lock(m_resourceSection);
+    // tell any shared resources
+    for (std::vector<IDispResource *>::iterator i = m_resources.begin(); i != m_resources.end(); ++i)
+      (*i)->OnResetDisplay();
+  }
+
+  Show();
   return true;
 }
 
@@ -307,9 +348,6 @@ bool CWinSystemEGL::DestroyWindow()
 bool CWinSystemEGL::ResizeWindow(int newWidth, int newHeight, int newLeft, int newTop)
 {
   CRenderSystemGLES::ResetRenderSystem(newWidth, newHeight, true, 0);
-  int vsync_mode = CSettings::Get().GetInt("videoscreen.vsync");
-  if (vsync_mode != VSYNC_DRIVER)
-    SetVSyncImpl(m_iVSyncMode);
   return true;
 }
 
@@ -317,9 +355,6 @@ bool CWinSystemEGL::SetFullScreen(bool fullScreen, RESOLUTION_INFO& res, bool bl
 {
   CreateNewWindow("", fullScreen, res, NULL);
   CRenderSystemGLES::ResetRenderSystem(res.iWidth, res.iHeight, fullScreen, res.fRefreshRate);
-  int vsync_mode = CSettings::Get().GetInt("videoscreen.vsync");
-  if (vsync_mode != VSYNC_DRIVER)
-    SetVSyncImpl(m_iVSyncMode);
   return true;
 }
 
@@ -360,14 +395,14 @@ void CWinSystemEGL::UpdateResolutions()
   {
     // if this is a new setting,
     // create a new empty setting to fill in.
-    if ((int)CDisplaySettings::Get().ResolutionInfoSize() <= res_index)
+    if ((int)CDisplaySettings::GetInstance().ResolutionInfoSize() <= res_index)
     {
       RESOLUTION_INFO res;
-      CDisplaySettings::Get().AddResolutionInfo(res);
+      CDisplaySettings::GetInstance().AddResolutionInfo(res);
     }
 
     g_graphicsContext.ResetOverscan(resolutions[i]);
-    CDisplaySettings::Get().GetResolutionInfo(res_index) = resolutions[i];
+    CDisplaySettings::GetInstance().GetResolutionInfo(res_index) = resolutions[i];
 
     CLog::Log(LOGNOTICE, "Found resolution %d x %d for display %d with %d x %d%s @ %f Hz\n",
       resolutions[i].iWidth,
@@ -400,9 +435,9 @@ void CWinSystemEGL::UpdateResolutions()
       resDesktop.fRefreshRate,
       (int)ResDesktop, (int)RES_DESKTOP);
 
-    RESOLUTION_INFO desktop = CDisplaySettings::Get().GetResolutionInfo(RES_DESKTOP);
-    CDisplaySettings::Get().GetResolutionInfo(RES_DESKTOP) = CDisplaySettings::Get().GetResolutionInfo(ResDesktop);
-    CDisplaySettings::Get().GetResolutionInfo(ResDesktop) = desktop;
+    RESOLUTION_INFO desktop = CDisplaySettings::GetInstance().GetResolutionInfo(RES_DESKTOP);
+    CDisplaySettings::GetInstance().GetResolutionInfo(RES_DESKTOP) = CDisplaySettings::GetInstance().GetResolutionInfo(ResDesktop);
+    CDisplaySettings::GetInstance().GetResolutionInfo(ResDesktop) = desktop;
   }
 }
 
@@ -417,10 +452,19 @@ bool CWinSystemEGL::IsExtSupported(const char* extension)
   return (m_extensions.find(name) != std::string::npos || CRenderSystemGLES::IsExtSupported(extension));
 }
 
-bool CWinSystemEGL::PresentRenderImpl(const CDirtyRegionList &dirty)
+void CWinSystemEGL::PresentRenderImpl(bool rendered)
 {
+  if (m_delayDispReset && m_dispResetTimer.IsTimePast())
+  {
+    m_delayDispReset = false;
+    CSingleLock lock(m_resourceSection);
+    // tell any shared resources
+    for (std::vector<IDispResource *>::iterator i = m_resources.begin(); i != m_resources.end(); ++i)
+      (*i)->OnResetDisplay();
+  }
+  if (!rendered)
+    return;
   m_egl->SwapBuffers(m_display, m_surface);
-  return true;
 }
 
 void CWinSystemEGL::SetVSyncImpl(bool enable)
@@ -431,6 +475,9 @@ void CWinSystemEGL::SetVSyncImpl(bool enable)
     m_iVSyncMode = 0;
     CLog::Log(LOGERROR, "%s,Could not set egl vsync", __FUNCTION__);
   }
+#ifdef HAS_IMXVPU
+  g_IMXContext.SetVSync(enable);
+#endif
 }
 
 void CWinSystemEGL::ShowOSMouse(bool show)
@@ -472,6 +519,20 @@ bool CWinSystemEGL::Show(bool raise)
   return m_egl->ShowWindow(true);
 }
 
+void CWinSystemEGL::Register(IDispResource *resource)
+{
+  CSingleLock lock(m_resourceSection);
+  m_resources.push_back(resource);
+}
+
+void CWinSystemEGL::Unregister(IDispResource* resource)
+{
+  CSingleLock lock(m_resourceSection);
+  std::vector<IDispResource*>::iterator i = find(m_resources.begin(), m_resources.end(), resource);
+  if (i != m_resources.end())
+    m_resources.erase(i);
+}
+
 EGLDisplay CWinSystemEGL::GetEGLDisplay()
 {
   return m_display;
@@ -485,35 +546,6 @@ EGLContext CWinSystemEGL::GetEGLContext()
 EGLConfig CWinSystemEGL::GetEGLConfig()
 {
   return m_config;
-}
-
-// the logic in this function should match whether CBaseRenderer::FindClosestResolution picks a 3D mode
-bool CWinSystemEGL::Support3D(int width, int height, uint32_t mode) const
-{
-  RESOLUTION_INFO &curr = CDisplaySettings::Get().GetResolutionInfo(g_graphicsContext.GetVideoResolution());
-
-  // if we are using automatic hdmi mode switching
-  if (CSettings::Get().GetInt("videoplayer.adjustrefreshrate") != ADJUST_REFRESHRATE_OFF)
-  {
-    int searchWidth = curr.iScreenWidth;
-    int searchHeight = curr.iScreenHeight;
-
-    // only search the custom resolutions
-    for (unsigned int i = (int)RES_DESKTOP; i < CDisplaySettings::Get().ResolutionInfoSize(); i++)
-    {
-      RESOLUTION_INFO res = CDisplaySettings::Get().GetResolutionInfo(i);
-      if(res.iScreenWidth == searchWidth && res.iScreenHeight == searchHeight && (res.dwFlags & mode))
-        return true;
-    }
-  }
-  // otherwise just consider current mode
-  else
-  {
-     if (curr.dwFlags & mode)
-       return true;
-  }
-
-  return false;
 }
 
 bool CWinSystemEGL::ClampToGUIDisplayLimits(int &width, int &height)

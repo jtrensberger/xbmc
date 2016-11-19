@@ -35,7 +35,8 @@
 */
 #define EGL_QUIRK_DESTROY_NATIVE_WINDOW_WITH_SURFACE (1 << 1)
 
-/*! \brief The intel driver on wayland is broken and always returns a surface
-           size of -1, -1. Work around it for now
+/*! \brief Some drivers destroy the native display on resolution change. xbmc's EGL
+    implementation is not aware of this change. In that case a Reinit of the display
+    needs to be done.
 */
-#define EGL_QUIRK_DONT_TRUST_SURFACE_SIZE (1 << 2)
+#define EGL_QUIRK_RECREATE_DISPLAY_ON_CREATE_WINDOW (1 << 3)
